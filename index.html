@@ -11,9 +11,21 @@
       --ok:#4caf50; --warn:#ffc107; --bad:#f44336; --radius:14px; --header:60px; --nav:76px;
     }
     [data-theme="midnight"]{
-      --bg:#0a0d12; --surface:#0f1520; --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.1);
-      --text:#e9f2ff; --muted:#9ab0c8; --accent:#67e8f9; --accent-2:#91a4ff; --danger:#ff6b6b;
+      /* Stronger contrast vs Dark */
+      --bg:#070a0f;            /* deeper blue-black */
+      --surface:#0b1320;       /* colder surface */
+      --glass:rgba(120,160,255,.10);
+      --line:rgba(120,160,255,.22);
+      --text:#e6efff;
+      --muted:#9fb3d9;
+      --accent:#58a9ff;        /* colder accent than Dark */
+      --accent-2:#7aa2ff;
+      --danger:#ff6b6b;
     }
+    /* Midnight specific shadows */
+    [data-theme="midnight"] .card{ box-shadow:0 8px 28px rgba(36,84,180,.35) }
+    /* Better spacing for first row inside cards (prevents buttons from sticking) */
+    .card > .row:first-child{ margin-bottom:8px }
     [data-theme="light"]{
       --bg:#f6f8fb; --surface:#ffffff; --glass:rgba(0,0,0,.03); --line:rgba(0,0,0,.08);
       --text:#0b0f14; --muted:#4c5563; --accent:#0bbf9a; --accent-2:#4b72ff; --danger:#e53935;
@@ -68,6 +80,7 @@
     .chip.filled{border-style:solid;color:#021;background:linear-gradient(180deg,var(--accent),rgba(94,234,212,.18))}
     /* Simple map placeholder */
     .map{height:220px;border-radius:12px;border:1px solid var(--line);background:repeating-linear-gradient(45deg, #0f1720, #0f1720 10px, #0c141c 10px, #0c141c 20px);display:grid;place-items:center;color:var(--muted)}
+    [data-theme="midnight"] .map{background:repeating-linear-gradient(45deg,#0a1220,#0a1220 10px,#0c1a30 10px,#0c1a30 20px)}
     [data-theme="light"] .map{background:repeating-linear-gradient(45deg, #eef2ff, #eef2ff 10px, #e7ecfe 10px, #e7ecfe 20px)}
     /* Toggle */
     .toggle{display:flex;align-items:center;gap:10px}
@@ -277,6 +290,49 @@
       // Telegram WebApp shim (safe outside Telegram)
       let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 
+      // Stage 2: Telegram WebApp integration (safe outside Telegram)
+      const userNameEl = document.getElementById('userName');
+      const userAvatarEl = document.getElementById('userAvatar');
+
+      function applyThemeFromTelegram(){
+        if(!tg) return;
+        const scheme = tg.colorScheme === 'light' ? 'light' : 'dark';
+        // Follow Telegram on each WebApp open; user may override later in Settings
+        applyTheme(scheme);
+        const sel = document.getElementById('themeSel'); if(sel) sel.value = scheme;
+      }
+      function updateBackButton(tab){
+        if(!tg) return;
+        const roots = ['feed','circles','ice','settings','pro'];
+        if(roots.includes(tab)) tg.BackButton.hide(); else tg.BackButton.show();
+      }
+      function updateMainButton(tab){
+        if(!tg) return;
+        if(tab==='pro'){
+          const txt = document.querySelector('[data-i18n="pro.buy"]').textContent || 'Buy Pro';
+          tg.MainButton.setParams({text:txt, is_active:true, is_visible:true});
+        } else { tg.MainButton.hide(); }
+      }
+      function initTelegram(){
+        if(!tg) return;
+        try{ tg.ready(); tg.expand(); }catch(e){}
+        applyThemeFromTelegram();
+        const u = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : null;
+        if(u){
+          const full = `${u.first_name||''} ${u.last_name||''}`.trim();
+          if(full) userNameEl.textContent = full;
+          const initials = `${(u.first_name||'S').charAt(0)}${(u.last_name||'C').charAt(0)}`.toUpperCase();
+          userAvatarEl.textContent = initials || 'SC';
+        }
+        tg.onEvent('themeChanged', ()=>applyThemeFromTelegram());
+        tg.onEvent('backButtonClicked', ()=>{ history.back(); });
+        tg.onEvent('mainButtonClicked', ()=>{ const b=document.getElementById('btnBuy'); if(b) b.click(); });
+      }
+      initTelegram();
+
+      // Haptics for taps
+      document.addEventListener('click', (e)=>{ if(tg && tg.HapticFeedback){ const el=e.target.closest('.btn, nav .tab, .chip'); if(el){ try{ tg.HapticFeedback.impactOccurred('light'); }catch(e){} } } });
+
       /********************
        *  SIMPLE ROUTER
        ********************/
@@ -326,7 +382,7 @@
         { id:2, type:'shelling', level:'danger', when:Date.now()-12*60*1000, area:'kharkiv_raion', textKey:'feed.ev2' },
         { id:3, type:'blockpost', level:'info', when:Date.now()-25*60*1000, area:'dnipro', textKey:'feed.ev3' },
       ];
-      let circles = [{ id:1, name:'Family', members:2 }];
+      let circles = [{ id:1, nameKey:'circle.family', name:'Family', members:2 }];
       let docs = [];
 
       /********************
@@ -336,7 +392,7 @@
         uk: { 'app.subtitle':'MVP • WebApp',
               'nav.feed':'Лента','nav.circles':'Кола','nav.ice':'ICE','nav.settings':'Налашт.','nav.pro':'Pro',
               'feed.title':'Оповіщення','feed.filters':'Фільтри','map.placeholder':'Тут буде карта (пізніше)',
-              'circles.title':'Кола зв\'язку','circles.checkin':'Я в порядку','circles.sos':'SOS','circles.broadcast':'Розіслати «Я в порядку»','circle.open':'Відкрити','circle.members':'учасн.',
+              'circles.title':'Кола зв\'язку','circles.checkin':'Я в порядку','circles.sos':'SOS','circles.broadcast':'Розіслати «Я в порядку»','circle.open':'Відкрити','circle.members':'учасн.', 'circle.family':'Сім\'я',
               'ice.title':'ICE-профіль','ice.allergies':'Алергії','ice.meds':'Ліки','ice.meds.critical':'Життєво важливі','ice.meds.secondary':'Другорядні','ice.blood':'Група крові','ice.docs':'Документи (до 3 безкоштовно)','ice.qr':'QR з\'явиться пізніше','ice.note':'Дані зберігаються локально та можуть бути зашифровані (додамо пізніше).',
               'settings.title':'Налаштування','settings.lang':'Мова','settings.theme':'Тема','settings.goPro':'Перейти на Pro',
               'pro.title':'SafeConnect Pro — $5/міс','pro.item1':'∞ кола, учасники, документи','pro.item2':'Авто-check-in на тривоги + сценарії SOS','pro.item3':'Умні геозони, оффлайн-карти, синхронізація','pro.buy':'Оплатити','pro.try':'7 днів безкоштовно',
@@ -349,7 +405,7 @@
         ru: { 'app.subtitle':'MVP • WebApp',
               'nav.feed':'Лента','nav.circles':'Круги','nav.ice':'ICE','nav.settings':'Настр.','nav.pro':'Pro',
               'feed.title':'Оповещения','feed.filters':'Фильтры','map.placeholder':'Здесь будет карта (позже)',
-              'circles.title':'Круги связи','circles.checkin':'Я в порядке','circles.sos':'SOS','circles.broadcast':'Разослать «Я в порядке»','circle.open':'Открыть','circle.members':'участн.',
+              'circles.title':'Круги связи','circles.checkin':'Я в порядке','circles.sos':'SOS','circles.broadcast':'Разослать «Я в порядке»','circle.open':'Открыть','circle.members':'участн.', 'circle.family':'Семья',
               'ice.title':'ICE-профиль','ice.allergies':'Аллергии','ice.meds':'Лекарства','ice.meds.critical':'Жизненно важные','ice.meds.secondary':'Второстепенные','ice.blood':'Группа крови','ice.docs':'Документы (до 3 бесплатно)','ice.qr':'QR появится позже','ice.note':'Данные хранятся локально и могут быть зашифрованы (добавим позже).',
               'settings.title':'Настройки','settings.lang':'Язык','settings.theme':'Тема','settings.goPro':'Перейти на Pro',
               'pro.title':'SafeConnect Pro — $5/мес','pro.item1':'∞ круги, участники, документы','pro.item2':'Авто-check-in на тревоги + сценарии SOS','pro.item3':'Умные геозоны, оффлайн-карты, синхронизация','pro.buy':'Оплатить','pro.try':'7 дней бесплатно',
@@ -362,7 +418,7 @@
         en: { 'app.subtitle':'MVP • WebApp',
               'nav.feed':'Feed','nav.circles':'Circles','nav.ice':'ICE','nav.settings':'Settings','nav.pro':'Pro',
               'feed.title':'Alerts','feed.filters':'Filters','map.placeholder':'Map will be here (later)',
-              'circles.title':'Circles','circles.checkin':'I\'m safe','circles.sos':'SOS','circles.broadcast':'Broadcast "I\'m safe"','circle.open':'Open','circle.members':'members',
+              'circles.title':'Circles','circles.checkin':'I\'m safe','circles.sos':'SOS','circles.broadcast':'Broadcast "I\'m safe"','circle.open':'Open','circle.members':'members', 'circle.family':'Family',
               'ice.title':'ICE Profile','ice.allergies':'Allergies','ice.meds':'Medication','ice.meds.critical':'Critical','ice.meds.secondary':'Secondary','ice.blood':'Blood type','ice.docs':'Documents (up to 3 free)','ice.qr':'QR will appear later','ice.note':'Data is stored locally and can be encrypted (coming soon).',
               'settings.title':'Settings','settings.lang':'Language','settings.theme':'Theme','settings.goPro':'Go Pro',
               'pro.title':'SafeConnect Pro — $5/mo','pro.item1':'∞ circles, members, documents','pro.item2':'Auto check-in on alerts + SOS scripts','pro.item3':'Smart geozones, offline maps, sync','pro.buy':'Buy','pro.try':'7 days free',
@@ -401,7 +457,7 @@
        *  CIRCLES render helpers (depend on t, circleList)
        ********************/
       function renderCircles(){
-        circleList.innerHTML = circles.map(c=>`<div class="tile row"><div><b>${c.name}</b><div class="muted">${c.members} ${t('circle.members')}</div></div><button class="btn">${t('circle.open')}</button></div>`).join('');
+        circleList.innerHTML = circles.map(c=>`<div class="tile row"><div><b>${c.nameKey ? t(c.nameKey) : c.name}</b><div class="muted">${c.members} ${t('circle.members')}</div></div><button class="btn">${t('circle.open')}</button></div>`).join('');
       }
 
       /********************
