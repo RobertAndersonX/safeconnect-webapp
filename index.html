@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>SafeConnect — MVP</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --surface:#10161d; --glass:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
+      --text:#e7eef6; --muted:#9aa4b2; --accent:#5eead4; --accent-2:#7aa2ff; --danger:#ff6b6b;
+      --ok:#4caf50; --warn:#ffc107; --bad:#f44336; --radius:14px; --header:60px; --nav:76px;
+    }
+    [data-theme="midnight"]{
+      --bg:#0a0d12; --surface:#0f1520; --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.1);
+      --text:#e9f2ff; --muted:#9ab0c8; --accent:#67e8f9; --accent-2:#91a4ff; --danger:#ff6b6b;
+    }
+    [data-theme="light"]{
+      --bg:#f6f8fb; --surface:#ffffff; --glass:rgba(0,0,0,.03); --line:rgba(0,0,0,.08);
+      --text:#0b0f14; --muted:#4c5563; --accent:#0bbf9a; --accent-2:#4b72ff; --danger:#e53935;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,var(--bg),var(--surface));color:var(--text);font-family:Inter,system-ui,Roboto,Arial;transition:background .2s,color .2s}
+    /* Header */
+    header{height:var(--header);display:flex;align-items:center;justify-content:space-between;padding:8px 12px;position:sticky;top:0;z-index:2;background:linear-gradient(180deg,rgba(0,0,0,.06),rgba(0,0,0,.02));backdrop-filter:saturate(1.2) blur(4px);border-bottom:1px solid var(--line)}
+    [data-theme="light"] header{background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.5))}
+    .hdr-left{display:flex;gap:10px;align-items:center}
+    .avatar{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#223,#056);display:grid;place-items:center;font-weight:700;color:#fff}
+    [data-theme="light"] .avatar{background:linear-gradient(135deg,#eaefff,#cfe1ff);color:#234}
+    .hdr-meta{display:flex;flex-direction:column}
+    .name{font-size:15px;font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .hdr-right{display:flex;align-items:center;gap:8px}
+    .pill{padding:6px 10px;border-radius:10px;background:var(--glass);font-size:12px;border:1px solid var(--line)}
+    .weather{display:flex;align-items:center;gap:6px}
+    /* Viewport */
+    #app{height:calc(100% - var(--header));display:flex;flex-direction:column}
+    main{flex:1;overflow:auto;padding:12px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.08));border:1px solid var(--line);border-radius:16px;padding:12px}
+    [data-theme="light"] .card{background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.8))}
+    .grid{display:grid;gap:10px}
+    .grid.cols-2{grid-template-columns:1fr 1fr}
+    @media (max-width:640px){.grid.cols-2{grid-template-columns:1fr}}
+    .btn{display:inline-flex;gap:8px;align-items:center;justify-content:center;height:48px;padding:0 14px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--line);color:var(--text);cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent), rgba(94,234,212,0.12));color:#012;border:0;box-shadow:0 6px 20px rgba(5,200,180,.1)}
+    .btn.danger{background:linear-gradient(90deg,var(--danger), rgba(255,107,107,.12));color:#140202;border:0}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .muted{color:var(--muted)}
+    .h{font-size:16px;font-weight:800;margin:6px 0 8px}
+    /* Bottom nav (readable) */
+    nav{height:var(--nav);display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);background:linear-gradient(180deg,transparent,rgba(0,0,0,.1));overflow-x:auto}
+    nav .tab{min-width:86px;flex:1;border-radius:12px;border:1px solid var(--line);background:var(--glass);display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:600;color:var(--muted);padding:6px 8px}
+    nav .tab span{font-size:11px;margin-top:2px}
+    nav .tab.active{background:linear-gradient(90deg,var(--accent-2),rgba(122,162,255,.12));color:#0b1020;border:0}
+    /* Screens (simple router) */
+    .screen{display:none;animation:fade .18s ease}
+    .screen.active{display:block}
+    @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    /* List & badges */
+    .list{display:flex;flex-direction:column;gap:10px}
+    .tile{border:1px solid var(--line);border-radius:12px;background:var(--glass);padding:10px}
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12px}
+    .badge.warn{background:rgba(255,193,7,.12);border-color:rgba(255,193,7,.25)}
+    .badge.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.25)}
+    /* Inventory-like chips for docs */
+    .chips{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .chip{aspect-ratio:1/1;border-radius:12px;border:1px dashed var(--line);display:grid;place-items:center;color:var(--muted);background:var(--glass);cursor:pointer}
+    .chip.filled{border-style:solid;color:#021;background:linear-gradient(180deg,var(--accent),rgba(94,234,212,.18))}
+    /* Simple map placeholder */
+    .map{height:220px;border-radius:12px;border:1px solid var(--line);background:repeating-linear-gradient(45deg, #0f1720, #0f1720 10px, #0c141c 10px, #0c141c 20px);display:grid;place-items:center;color:var(--muted)}
+    [data-theme="light"] .map{background:repeating-linear-gradient(45deg, #eef2ff, #eef2ff 10px, #e7ecfe 10px, #e7ecfe 20px)}
+    /* Toggle */
+    .toggle{display:flex;align-items:center;gap:10px}
+    .select{height:36px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text);padding:0 8px}
+    /* Modal */
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+    .modal .box{max-width:520px;width:100%;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.25));border:1px solid var(--line);border-radius:16px;padding:14px}
+    .modal.show{display:flex}
+    .note{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="hdr-left">
+      <div class="avatar" id="userAvatar">SC</div>
+      <div class="hdr-meta">
+        <div class="name" id="userName">SafeConnect</div>
+        <div class="sub" id="subLine" data-i18n="app.subtitle">MVP • WebApp</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="pill weather" id="weatherBox">🌡️ 23° • ⛅︎ <span class="muted" id="weatherCity">Kyiv</span></div>
+      <div class="pill" id="timeNow">--:--:--</div>
+    </div>
+  </header>
+
+  <div id="app">
+    <main>
+      <!-- FEED -->
+      <section id="screen-feed" class="screen active">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="feed.title">Оповіщення</div>
+            <button class="btn" id="btnFilters">⚙️ <span data-i18n="feed.filters">Фільтри</span></button>
+          </div>
+          <div class="map">🗺️ <span class="muted" data-i18n="map.placeholder">Тут буде карта (пізніше)</span></div>
+        </div>
+        <div style="height:10px"></div>
+        <div class="list" id="feedList"></div>
+      </section>
+
+      <!-- CIRCLES -->
+      <section id="screen-circles" class="screen">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="circles.title">Кола зв'язку</div>
+            <button class="btn primary" id="btnAddCircle" data-i18n="common.add">Додати</button>
+          </div>
+          <div class="list" id="circleList"></div>
+        </div>
+        <div style="height:10px"></div>
+        <div class="row" style="gap:8px">
+          <button class="btn danger" id="btnSOS">🚨 <span data-i18n="circles.sos">SOS</span></button>
+          <button class="btn" id="btnCheckIn" data-i18n="circles.checkin">Я в порядку</button>
+          <button class="btn" id="btnBroadcast" data-i18n="circles.broadcast">Розіслати «Я в порядку»</button>
+        </div>
+      </section>
+
+      <!-- ICE HOME -->
+      <section id="screen-ice" class="screen">
+        <div class="card">
+          <div class="h" data-i18n="ice.title">ICE-профіль</div>
+          <div class="grid cols-2">
+            <button class="btn" data-ice="allergies" data-i18n="ice.allergies">Алергії</button>
+            <button class="btn" data-ice="meds" data-i18n="ice.meds">Ліки</button>
+            <button class="btn" data-ice="blood" data-i18n="ice.blood">Група крові</button>
+            <button class="btn" data-ice="docs" data-i18n="ice.docs">Документи (до 3 безкоштовно)</button>
+          </div>
+          <div class="note" style="margin-top:8px" data-i18n="ice.note">Дані зберігаються локально та можуть бути зашифровані (додамо пізніше).</div>
+        </div>
+      </section>
+
+      <!-- ICE SUB: Allergies -->
+      <section id="screen-ice-allergies" class="screen">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="ice.allergies">Алергії</div><button class="btn" data-back="ice">← <span data-i18n="common.back">Назад</span></button></div>
+          <textarea id="iceAllergies" class="pill" style="width:100%;height:160px" placeholder="—"></textarea>
+        </div>
+      </section>
+
+      <!-- ICE SUB: Meds -->
+      <section id="screen-ice-meds" class="screen">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="ice.meds">Ліки</div><button class="btn" data-back="ice">← <span data-i18n="common.back">Назад</span></button></div>
+          <div class="row"><div class="muted" data-i18n="ice.meds.critical">Життєво важливі</div><button class="btn" id="addCrit">＋</button></div>
+          <div class="list" id="critList"></div>
+          <div style="height:8px"></div>
+          <div class="row"><div class="muted" data-i18n="ice.meds.secondary">Другорядні</div><button class="btn" id="addSec">＋</button></div>
+          <div class="list" id="secList"></div>
+        </div>
+      </section>
+
+      <!-- ICE SUB: Blood -->
+      <section id="screen-ice-blood" class="screen">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="ice.blood">Група крові</div><button class="btn" data-back="ice">← <span data-i18n="common.back">Назад</span></button></div>
+          <input id="iceBlood" class="pill" placeholder="0(I) Rh+" style="width:100%" />
+          <div style="height:8px"></div>
+          <div class="row"><div class="muted">QR</div><div class="pill" id="qrPlaceholder" style="flex:1;display:flex;align-items:center;gap:8px;justify-content:center">◻️ <span class="muted" data-i18n="ice.qr">QR з'явиться пізніше</span></div></div>
+        </div>
+      </section>
+
+      <!-- ICE SUB: Docs -->
+      <section id="screen-ice-docs" class="screen">
+        <div class="card">
+          <div class="row"><div class="h" data-i18n="ice.docs">Документи (до 3 безкоштовно)</div><button class="btn" data-back="ice">← <span data-i18n="common.back">Назад</span></button></div>
+          <div class="chips" id="docChips"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="screen-settings" class="screen">
+        <div class="card">
+          <div class="h" data-i18n="settings.title">Налаштування</div>
+          <div class="row"><div class="muted" data-i18n="settings.lang">Мова</div>
+            <select id="langSel" class="select">
+              <option value="uk">Українська</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div style="height:10px"></div>
+          <div class="row"><div class="muted" data-i18n="settings.theme">Тема</div>
+            <select id="themeSel" class="select">
+              <option value="dark">Dark</option>
+              <option value="midnight">Midnight</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+          <div style="height:10px"></div>
+          <button class="btn" id="btnPro" data-i18n="settings.goPro">Перейти на Pro</button>
+        </div>
+      </section>
+
+      <!-- PRO -->
+      <section id="screen-pro" class="screen">
+        <div class="card">
+          <div class="h" data-i18n="pro.title">SafeConnect Pro — $5/міс</div>
+          <ul id="proList">
+            <li data-i18n="pro.item1">∞ кола, учасники, документи</li>
+            <li data-i18n="pro.item2">Авто-check-in на тривоги + сценарії SOS</li>
+            <li data-i18n="pro.item3">Умні геозони, оффлайн-карти, синхронізація</li>
+          </ul>
+          <div class="row">
+            <button class="btn primary" id="btnBuy" data-i18n="pro.buy">Оплатити</button>
+            <button class="btn" id="btnTry" data-i18n="pro.try">7 днів безкоштовно</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav>
+      <button class="tab active" data-tab="feed"><div>📰</div><span data-i18n="nav.feed">Лента</span></button>
+      <button class="tab" data-tab="circles"><div>👥</div><span data-i18n="nav.circles">Кола</span></button>
+      <button class="tab" data-tab="ice"><div>❄️</div><span data-i18n="nav.ice">ICE</span></button>
+      <button class="tab" data-tab="settings"><div>⚙️</div><span data-i18n="nav.settings">Налашт.</span></button>
+      <button class="tab" data-tab="pro"><div>⭐</div><span data-i18n="nav.pro">Pro</span></button>
+    </nav>
+  </div>
+
+  <!-- Modal: Pro upsell -->
+  <div class="modal" id="proModal">
+    <div class="box">
+      <div class="h" data-i18n="modal.title">Обмеження безкоштовної версії</div>
+      <p class="muted" data-i18n="modal.text">Ви досягли ліміту (3 документи / 1 коло / 1 геозона). Розблокуйте все у SafeConnect Pro — $5/міс.</p>
+      <div class="row">
+        <button class="btn" id="proClose" data-i18n="modal.later">Пізніше</button>
+        <button class="btn primary" id="proBuyNow" data-i18n="modal.buy">Купити Pro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Filters placeholder -->
+  <div class="modal" id="filtersModal">
+    <div class="box">
+      <div class="h" data-i18n="filters.title">Фільтри</div>
+      <div class="row"><span class="muted" data-i18n="filters.type">Типи подій</span>
+        <div>
+          <label class="muted"><input type="checkbox" checked/> UAV</label>
+          <label class="muted"><input type="checkbox" checked/> Обстріли</label>
+          <label class="muted"><input type="checkbox" checked/> Блокпости</label>
+        </div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="row">
+        <button class="btn" id="filtersCancel" data-i18n="filters.cancel">Скасувати</button>
+        <button class="btn primary" id="filtersApply" data-i18n="filters.apply">Застосувати</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Ensure DOM is fully parsed before any element access / function calls
+    document.addEventListener('DOMContentLoaded', () => {
+      /********************
+       *  CLOCK (Kyiv) + Weather placeholder
+       ********************/
+      const timeEl = document.getElementById('timeNow');
+      const weatherBox = document.getElementById('weatherBox');
+      const weatherCityEl = document.getElementById('weatherCity');
+      function tick(){
+        const now = new Date();
+        timeEl.textContent = now.toLocaleTimeString('uk-UA', {timeZone:'Europe/Kyiv', hour12:false});
+      }
+      setInterval(tick, 1000); tick();
+      // Weather mock (Kyiv). Later: replace with API and user's city.
+      let weather = { cityKey:'kyiv', tempC:23, icon:'⛅︎', text:{uk:'Хмарно',ru:'Облачно',en:'Cloudy'} };
+
+      // Telegram WebApp shim (safe outside Telegram)
+      let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+      /********************
+       *  SIMPLE ROUTER
+       ********************/
+      const tabs = document.querySelectorAll('nav .tab');
+      const screens = {
+        feed: document.getElementById('screen-feed'),
+        circles: document.getElementById('screen-circles'),
+        ice: document.getElementById('screen-ice'),
+        settings: document.getElementById('screen-settings'),
+        pro: document.getElementById('screen-pro'),
+        'ice-allergies': document.getElementById('screen-ice-allergies'),
+        'ice-meds': document.getElementById('screen-ice-meds'),
+        'ice-blood': document.getElementById('screen-ice-blood'),
+        'ice-docs': document.getElementById('screen-ice-docs'),
+      };
+      function go(tab){
+        for(const t of tabs) t.classList.toggle('active', t.dataset.tab===tab);
+        for(const k in screens) screens[k].classList.toggle('active', k===tab);
+        history.replaceState({}, '', `#${tab}`);
+        if (typeof updateBackButton==='function') updateBackButton(tab);
+        if (typeof updateMainButton==='function') updateMainButton(tab);
+      }
+      tabs.forEach(b=>b.addEventListener('click',()=>go(b.dataset.tab)));
+      const initialHash = location.hash.replace('#','');
+      if(screens[initialHash]) go(initialHash); else go('feed');
+      // ICE navigation
+      document.querySelectorAll('[data-ice]').forEach(btn=>btn.addEventListener('click',()=>{
+        go('ice-'+btn.getAttribute('data-ice'));
+      }));
+      document.querySelectorAll('[data-back]').forEach(btn=>btn.addEventListener('click',()=>{
+        go(btn.getAttribute('data-back'));
+      }));
+
+      /********************
+       *  DOM refs used by renderers MUST be declared before i18n.applyLang() calls
+       ********************/
+      const feedList = document.getElementById('feedList');
+      const circleList = document.getElementById('circleList');
+      const docChips = document.getElementById('docChips');
+
+      /********************
+       *  DATA (feed, circles, limits)
+       ********************/
+      const FREE_LIMITS = { docs:3, circles:1 };
+      const feedData = [
+        { id:1, type:'uav', level:'warn', when:Date.now()-5*60*1000, area:'kyiv_obl', textKey:'feed.ev1' },
+        { id:2, type:'shelling', level:'danger', when:Date.now()-12*60*1000, area:'kharkiv_raion', textKey:'feed.ev2' },
+        { id:3, type:'blockpost', level:'info', when:Date.now()-25*60*1000, area:'dnipro', textKey:'feed.ev3' },
+      ];
+      let circles = [{ id:1, name:'Family', members:2 }];
+      let docs = [];
+
+      /********************
+       *  I18N (uk/ru/en) — global
+       ********************/
+      const i18n = {
+        uk: { 'app.subtitle':'MVP • WebApp',
+              'nav.feed':'Лента','nav.circles':'Кола','nav.ice':'ICE','nav.settings':'Налашт.','nav.pro':'Pro',
+              'feed.title':'Оповіщення','feed.filters':'Фільтри','map.placeholder':'Тут буде карта (пізніше)',
+              'circles.title':'Кола зв\'язку','circles.checkin':'Я в порядку','circles.sos':'SOS','circles.broadcast':'Розіслати «Я в порядку»','circle.open':'Відкрити','circle.members':'учасн.',
+              'ice.title':'ICE-профіль','ice.allergies':'Алергії','ice.meds':'Ліки','ice.meds.critical':'Життєво важливі','ice.meds.secondary':'Другорядні','ice.blood':'Група крові','ice.docs':'Документи (до 3 безкоштовно)','ice.qr':'QR з\'явиться пізніше','ice.note':'Дані зберігаються локально та можуть бути зашифровані (додамо пізніше).',
+              'settings.title':'Налаштування','settings.lang':'Мова','settings.theme':'Тема','settings.goPro':'Перейти на Pro',
+              'pro.title':'SafeConnect Pro — $5/міс','pro.item1':'∞ кола, учасники, документи','pro.item2':'Авто-check-in на тривоги + сценарії SOS','pro.item3':'Умні геозони, оффлайн-карти, синхронізація','pro.buy':'Оплатити','pro.try':'7 днів безкоштовно',
+              'filters.title':'Фільтри','filters.type':'Типи подій','filters.cancel':'Скасувати','filters.apply':'Застосувати',
+              'modal.title':'Обмеження безкоштовної версії','modal.text':'Ви досягли ліміту (3 документи / 1 коло / 1 геозона). Розблокуйте все у SafeConnect Pro — $5/міс.','modal.later':'Пізніше','modal.buy':'Купити Pro',
+              'common.add':'Додати','common.back':'Назад',
+              'weather.city.kyiv':'Київ', 'level.high':'Високий', 'level.warn':'Попередження', 'level.info':'Інфо',
+              'area.kyiv_obl':'Київська обл.', 'area.kharkiv_raion':'Харківський р-н', 'area.dnipro':'Дніпро',
+              'feed.ev1':'Може бути активність БпЛА', 'feed.ev2':'Ризик обстрілів', 'feed.ev3':'Новий блокпост на виїзді' },
+        ru: { 'app.subtitle':'MVP • WebApp',
+              'nav.feed':'Лента','nav.circles':'Круги','nav.ice':'ICE','nav.settings':'Настр.','nav.pro':'Pro',
+              'feed.title':'Оповещения','feed.filters':'Фильтры','map.placeholder':'Здесь будет карта (позже)',
+              'circles.title':'Круги связи','circles.checkin':'Я в порядке','circles.sos':'SOS','circles.broadcast':'Разослать «Я в порядке»','circle.open':'Открыть','circle.members':'участн.',
+              'ice.title':'ICE-профиль','ice.allergies':'Аллергии','ice.meds':'Лекарства','ice.meds.critical':'Жизненно важные','ice.meds.secondary':'Второстепенные','ice.blood':'Группа крови','ice.docs':'Документы (до 3 бесплатно)','ice.qr':'QR появится позже','ice.note':'Данные хранятся локально и могут быть зашифрованы (добавим позже).',
+              'settings.title':'Настройки','settings.lang':'Язык','settings.theme':'Тема','settings.goPro':'Перейти на Pro',
+              'pro.title':'SafeConnect Pro — $5/мес','pro.item1':'∞ круги, участники, документы','pro.item2':'Авто-check-in на тревоги + сценарии SOS','pro.item3':'Умные геозоны, оффлайн-карты, синхронизация','pro.buy':'Оплатить','pro.try':'7 дней бесплатно',
+              'filters.title':'Фильтры','filters.type':'Типы событий','filters.cancel':'Отмена','filters.apply':'Применить',
+              'modal.title':'Ограничения бесплатной версии','modal.text':'Вы достигли лимита (3 документа / 1 круг / 1 геозона). Разблокируйте всё в SafeConnect Pro — $5/мес.','modal.later':'Позже','modal.buy':'Купить Pro',
+              'common.add':'Добавить','common.back':'Назад',
+              'weather.city.kyiv':'Киев', 'level.high':'Высокий', 'level.warn':'Предупреждение', 'level.info':'Инфо',
+              'area.kyiv_obl':'Киевская обл.', 'area.kharkiv_raion':'Харьковский р-н', 'area.dnipro':'Днепр',
+              'feed.ev1':'Возможна активность БПЛА', 'feed.ev2':'Риск обстрелов', 'feed.ev3':'Новый блокпост на выезде' },
+        en: { 'app.subtitle':'MVP • WebApp',
+              'nav.feed':'Feed','nav.circles':'Circles','nav.ice':'ICE','nav.settings':'Settings','nav.pro':'Pro',
+              'feed.title':'Alerts','feed.filters':'Filters','map.placeholder':'Map will be here (later)',
+              'circles.title':'Circles','circles.checkin':'I\'m safe','circles.sos':'SOS','circles.broadcast':'Broadcast "I\'m safe"','circle.open':'Open','circle.members':'members',
+              'ice.title':'ICE Profile','ice.allergies':'Allergies','ice.meds':'Medication','ice.meds.critical':'Critical','ice.meds.secondary':'Secondary','ice.blood':'Blood type','ice.docs':'Documents (up to 3 free)','ice.qr':'QR will appear later','ice.note':'Data is stored locally and can be encrypted (coming soon).',
+              'settings.title':'Settings','settings.lang':'Language','settings.theme':'Theme','settings.goPro':'Go Pro',
+              'pro.title':'SafeConnect Pro — $5/mo','pro.item1':'∞ circles, members, documents','pro.item2':'Auto check-in on alerts + SOS scripts','pro.item3':'Smart geozones, offline maps, sync','pro.buy':'Buy','pro.try':'7 days free',
+              'filters.title':'Filters','filters.type':'Event types','filters.cancel':'Cancel','filters.apply':'Apply',
+              'modal.title':'Free plan limits','modal.text':'You reached the limit (3 docs / 1 circle / 1 geozone). Unlock all in SafeConnect Pro — $5/mo.','modal.later':'Later','modal.buy':'Buy Pro',
+              'common.add':'Add','common.back':'Back',
+              'weather.city.kyiv':'Kyiv', 'level.high':'High', 'level.warn':'Warning', 'level.info':'Info',
+              'area.kyiv_obl':'Kyiv Oblast', 'area.kharkiv_raion':'Kharkiv Raion', 'area.dnipro':'Dnipro',
+              'feed.ev1':'Possible UAV activity', 'feed.ev2':'Shelling risk', 'feed.ev3':'New checkpoint at exit' }
+      };
+      const langSel = document.getElementById('langSel');
+      langSel.addEventListener('change', ()=>applyLang(langSel.value));
+      function t(key){
+        const code = localStorage.getItem('sc_lang')||'uk';
+        const dict = i18n[code]||i18n.uk; return dict[key]||key;
+      }
+
+      /********************
+       *  FEED render helpers (depend on t, feedList)
+       ********************/
+      function levelBadge(level){
+        const cls = level==='danger'?'danger': level==='warn'?'warn':'';
+        const label = level==='danger'? t('level.high'): level==='warn'? t('level.warn'): t('level.info');
+        return `<span class="badge ${cls}">${label}</span>`;
+      }
+      function renderFeed(){
+        const code = localStorage.getItem('sc_lang')||'uk';
+        feedList.innerHTML = feedData.map(ev=>`<div class="tile">
+          <div class="row"><div>${levelBadge(ev.level)} <span class="muted">${new Date(ev.when).toLocaleTimeString(code==='en'?'en-GB':code==='ru'?'ru-RU':'uk-UA',{hour:'2-digit',minute:'2-digit'})}</span></div>
+            <div class="muted">${t('area.'+ev.area)}</div></div>
+          <div style="margin-top:6px">${t(ev.textKey)}</div>
+        </div>`).join('');
+      }
+
+      /********************
+       *  CIRCLES render helpers (depend on t, circleList)
+       ********************/
+      function renderCircles(){
+        circleList.innerHTML = circles.map(c=>`<div class="tile row"><div><b>${c.name}</b><div class="muted">${c.members} ${t('circle.members')}</div></div><button class="btn">${t('circle.open')}</button></div>`).join('');
+      }
+
+      /********************
+       *  applyLang AFTER renderers exist
+       ********************/
+      function applyLang(code){
+        const dict = i18n[code]||i18n.uk;
+        document.querySelectorAll('[data-i18n]').forEach(el=>{
+          const k = el.getAttribute('data-i18n');
+          if(dict[k]) el.textContent = dict[k];
+        });
+        localStorage.setItem('sc_lang', code);
+        // Update dynamic bits (weather city, feed, circles)
+        weatherCityEl.textContent = t('weather.city.'+weather.cityKey);
+        weatherBox.firstChild && (weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `);
+        renderFeed();
+        renderCircles();
+      }
+      applyLang(localStorage.getItem('sc_lang')||'uk');
+
+      /********************
+       *  THEME selector (dark/midnight/light)
+       ********************/
+      const themeSel = document.getElementById('themeSel');
+      function applyTheme(theme){
+        document.body.setAttribute('data-theme', theme);
+        localStorage.setItem('sc_theme', theme);
+      }
+      const savedTheme = localStorage.getItem('sc_theme')||'dark';
+      applyTheme(savedTheme); themeSel.value = savedTheme;
+      themeSel.addEventListener('change', ()=>{ applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
+
+      /********************
+       *  Circles controls
+       ********************/
+      document.getElementById('btnAddCircle').onclick = ()=>{
+        if(circles.length >= FREE_LIMITS.circles){ openProModal(); return; }
+        const id = Date.now();
+        circles.push({id, name:'New circle', members:1});
+        renderCircles();
+      };
+      document.getElementById('btnSOS').onclick = ()=>alert('SOS scripts in Pro (mock)');
+      document.getElementById('btnCheckIn').onclick = ()=>alert('Sent: "I\'m safe"');
+      document.getElementById('btnBroadcast').onclick = ()=>alert('Broadcast to all circles (Pro)');
+
+      /********************
+       *  ICE docs chips (add/remove with confirm)
+       ********************/
+      function renderDocs(){
+        const filled = docs.map((d,i)=>`<div class="chip filled" data-idx="${i}" title="Click to remove">${d.icon||'📄'}</div>`);
+        const freeSlots = Math.max(0, FREE_LIMITS.docs - docs.length);
+        const empty = Array.from({length: freeSlots},()=>`<div class="chip" data-add="1">＋</div>`);
+        docChips.innerHTML = [...filled, ...empty].join('');
+      }
+      renderDocs();
+      docChips.addEventListener('click', (e)=>{
+        const add = e.target.closest('[data-add]');
+        const filled = e.target.closest('.filled');
+        if(add){
+          if(docs.length >= FREE_LIMITS.docs){ openProModal(); return; }
+          docs.push({icon:'🪪'}); renderDocs(); return;
+        }
+        if(filled){
+          const idx = Number(filled.getAttribute('data-idx'));
+          if(Number.isInteger(idx)){
+            if(confirm(t('common.back')==='Back'?'Remove document?':'Видалити документ?')){ docs.splice(idx,1); renderDocs(); }
+          }
+        }
+      });
+
+      /********************
+       *  Settings → Pro
+       ********************/
+      document.getElementById('btnPro').onclick = ()=>go('pro');
+      document.getElementById('btnBuy').onclick = ()=>alert('Payments via Telegram (mock)');
+      document.getElementById('btnTry').onclick = ()=>alert('7-day Pro trial activated (mock)');
+
+      /********************
+       *  Pro modal (upsell)
+       ********************/
+      const proModal = document.getElementById('proModal');
+      function openProModal(){ proModal.classList.add('show'); }
+      document.getElementById('proClose').onclick = ()=>proModal.classList.remove('show');
+      document.getElementById('proBuyNow').onclick = ()=>{ proModal.classList.remove('show'); go('pro'); };
+
+      /********************
+       *  Filters modal (placeholder)
+       ********************/
+      const filtersModal = document.getElementById('filtersModal');
+      document.getElementById('btnFilters').onclick = ()=>filtersModal.classList.add('show');
+      document.getElementById('filtersCancel').onclick = ()=>filtersModal.classList.remove('show');
+      document.getElementById('filtersApply').onclick = ()=>{ filtersModal.classList.remove('show'); alert('Filters applied (mock)'); };
+
+      /********************
+       *  TESTS — existing + added
+       ********************/
+      console.assert(typeof levelBadge('warn')==='string', 'levelBadge must return HTML string');
+      console.assert(feedData.length===3, 'feedData length should be 3');
+      // NEW: feedList exists & render produces same count as feedData
+      console.assert(!!feedList, 'feedList element should exist');
+      renderFeed();
+      console.assert(feedList.querySelectorAll('.tile').length===feedData.length, 'renderFeed should render all items');
+      // NEW: language toggling updates nav label
+      console.assert((()=>{applyLang('ru'); const ok=document.querySelector('[data-i18n="nav.settings"]').textContent==='Настр.'; applyLang('uk'); return ok; })(), 'i18n should switch nav labels');
+      // Existing docs test (kept)
+      console.assert((()=>{const prev=docs.length; docs.push({icon:'📄'}); renderDocs(); const ok=docChips.querySelectorAll('.filled').length===docs.length; docs.pop(); renderDocs(); return ok;})(), 'docs rendering count matches state');
+      // NEW: theme variable application test
+      console.assert((()=>{applyTheme('light'); const a=getComputedStyle(document.body).getPropertyValue('--bg'); applyTheme('dark'); return !!a;})(), 'theme variables apply');
+    });
+  </script>
+</body>
+</html>
