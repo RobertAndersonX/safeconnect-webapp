@@ -402,11 +402,15 @@
 
       function applyThemeFromTelegram(){
         if(!tg) return;
+        // Если у пользователя уже сохранена тема — ничего не делаем
+        const userSaved = (typeof state !== 'undefined' && state && state.theme) || localStorage.getItem('sc_theme');
+        if (userSaved) return;
+
         const scheme = tg.colorScheme === 'light' ? 'light' : 'dark';
-        // Follow Telegram on each WebApp open; user may override later in Settings
         applyTheme(scheme);
         const sel = document.getElementById('themeSel'); if(sel) sel.value = scheme;
       }
+
       function updateBackButton(tab){
         if(!tg) return;
         const roots = ['feed','circles','ice','settings','pro'];
@@ -435,10 +439,9 @@
         tg.onEvent('backButtonClicked', ()=>{ history.back(); });
         tg.onEvent('mainButtonClicked', ()=>{ const b=document.getElementById('btnBuy'); if(b) b.click(); });
       }
-      initTelegram();
-
       // Haptics for taps
       document.addEventListener('click', (e)=>{ if(tg && tg.HapticFeedback){ const el=e.target.closest('.btn, nav .tab, .chip'); if(el){ try{ tg.HapticFeedback.impactOccurred('light'); }catch(e){} } } });
+
 
       /********************
        *  SIMPLE ROUTER
@@ -613,6 +616,8 @@
       }
 
       await applyLang(state.lang);
+      langSel.value = state.lang;
+
 
       /********************
        *  THEME selector (dark/midnight/light)
@@ -628,6 +633,9 @@
       themeSel.value = savedTheme;
       themeSel.addEventListener('change', ()=>{ applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
 
+      // ← ВСТАВЬ ЗДЕСЬ
+      initTelegram();
+      
       /********************
        *  Circles controls
        ********************/
