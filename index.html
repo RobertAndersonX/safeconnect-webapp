@@ -314,13 +314,17 @@
         let db;
         function open() {
           return new Promise((resolve, reject) => {
-            const req = indexedDB.open(dbName, 1);
-            req.onupgradeneeded = (e) => {
-              const d = e.target.result;
-              if (!d.objectStoreNames.contains(store)) d.createObjectStore(store, { keyPath: 'k' });
-            };
-            req.onsuccess = () => { db = req.result; resolve(); };
-            req.onerror = () => reject(req.error);
+            try{
+              const req = indexedDB.open(dbName, 1);
+              req.onupgradeneeded = (e) => {
+                const d = e.target.result;
+                if (!d.objectStoreNames.contains(store)) d.createObjectStore(store, { keyPath: 'k' });
+              };
+              req.onsuccess = () => { db = req.result; resolve(); };
+              req.onerror = () => reject(req.error);
+            }catch(err){
+              reject(err);
+            }
           });
         }
         async function get(k) {
@@ -345,8 +349,47 @@
           await set(k, next);
           return next;
         }
-        return { get, set, merge };
+      // Fallback: если open() упал, используем localStorage под ключом "__sc_fallback"
+      const _fallback = {
+        get kvm(){ try{ return JSON.parse(localStorage.getItem('__sc_fallback')||'{}'); }catch{ return {}; } },
+        set kvm(v){ localStorage.setItem('__sc_fallback', JSON.stringify(v)); }
+      };
+
+      async function safeCall(fn, ...args){
+        try{ return await fn(...args); }
+        catch(e){
+          // fallback режим
+          if (fn===get)  { const o=_fallback.kvm; return o[args[0]]; }
+          if (fn===set)  { const o=_fallback.kvm; o[args[0]] = args[1]; _fallback.kvm = o; return; }
+          if (fn===merge){ const cur = (await safeCall(get, args[0]))||{}; const next={...cur, ...args[1]}; await safeCall(set, args[0], next); return next; }
+          throw e;
+        }
+      }
+
+      // прокси-возврат, чтобы всегда использовать safeCall
+      return {
+        get: (k)=>safeCall(get,k),
+        set: (k,v)=>safeCall(set,k,v),
+        merge: (k,part)=>safeCall(merge,k,part)
+      };
+
       })();
+
+      /********************
+       *  STATE (default) + load/save
+       ********************/
+
+
+      /********************
+       *  SCHEMA & migrations
+       ********************/
+      const SCHEMA_VERSION = 1;
+
+      async function runMigrations(current) {
+        // пример на будущее:
+        // if (current < 2) { /* migrate to v2 */ }
+        return SCHEMA_VERSION;
+      }
 
       /********************
        *  STATE (default) + load/save
@@ -361,6 +404,9 @@
       let state = { ...DEFAULT_STATE };
 
       async function loadState() {
+        const schema = (await DB.get('schema')) || 0;
+        const newVer = await runMigrations(schema);
+        if (newVer !== schema) await DB.set('schema', newVer);
         const saved = (await DB.get('state')) || {};
         state = {
           ...DEFAULT_STATE,
@@ -665,14 +711,32 @@
         }
 
       /********************
+       *  Validation helpers
+       ********************/
+      function sanitizeText(s, max=400) {
+        return String(s||'').replace(/[\u0000-\u001F]+/g,' ').trim().slice(0,max);
+      }
+      function isBloodType(s) {
+        // допускаем: 0(I)/A(II)/B(III)/AB(IV) с Rh+/-
+        const v = String(s||'').trim().toUpperCase();
+        const patt = /^(0|A|B|AB)\s*(\((I{1,3}|IV|V)\))?\s*RH[+-]?$/; // «0(I) Rh+» и близкие
+        const alt  = /^(0|A|B|AB)\s*[^a-zA-Z0-9]*\s*R(H)?[+-]$/;       // лояльный вариант
+        return patt.test(v) || alt.test(v);
+      }
+
+      /********************
        *  ICE inputs & meds (persist)
        ********************/
       document.getElementById('iceAllergies').addEventListener('input', async (e)=>{
-        state.ice.allergies = e.target.value;
+        state.ice.allergies = sanitizeText(e.target.value, 2000);
         await saveState({ ice: { allergies: state.ice.allergies } });
       });
+
       document.getElementById('iceBlood').addEventListener('input', async (e)=>{
-        state.ice.blood = e.target.value;
+        const val = sanitizeText(e.target.value, 32);
+        state.ice.blood = val;
+        const el = e.target;
+        el.style.borderColor = isBloodType(val) ? 'var(--line)' : 'var(--danger)';
         await saveState({ ice: { blood: state.ice.blood } });
       });
 
@@ -680,19 +744,21 @@
       const secListEl  = document.getElementById('secList');
 
       document.getElementById('addCrit').onclick = async ()=>{
-        const name = prompt(t('ice.meds.critical'));
+        const name = sanitizeText(prompt(t('ice.meds.critical')) || '', 120);
         if(!name) return;
         state.ice.medsCrit.push(name);
         await saveState({ ice: { medsCrit: state.ice.medsCrit } });
         const d=document.createElement('div'); d.className='tile'; d.textContent=name; critListEl.appendChild(d);
       };
+
       document.getElementById('addSec').onclick = async ()=>{
-        const name = prompt(t('ice.meds.secondary'));
+        const name = sanitizeText(prompt(t('ice.meds.secondary')) || '', 120);
         if(!name) return;
         state.ice.medsSec.push(name);
         await saveState({ ice: { medsSec: state.ice.medsSec } });
         const d=document.createElement('div'); d.className='tile'; d.textContent=name; secListEl.appendChild(d);
       };
+
       function renderMedsLists(){
         critListEl.innerHTML=''; secListEl.innerHTML='';
         state.ice.medsCrit.forEach(n=>{ const d=document.createElement('div'); d.className='tile'; d.textContent=n; critListEl.appendChild(d); });
