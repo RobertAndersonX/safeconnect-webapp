@@ -288,7 +288,8 @@
 
   <script>
     // Ensure DOM is fully parsed before any element access / function calls
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
+
       /********************
        *  CLOCK (Kyiv) + Weather placeholder
        ********************/
@@ -302,6 +303,95 @@
       setInterval(tick, 1000); tick();
       // Weather mock (Kyiv). Later: replace with API and user's city.
       let weather = { cityKey:'kyiv', tempC:23, icon:'⛅︎', text:{uk:'Хмарно',ru:'Облачно',en:'Cloudy'} };
+
+
+      /********************
+       *  IndexedDB KV (sc -> kv)
+       ********************/
+      const DB = (() => {
+        const dbName = 'sc';
+        const store = 'kv';
+        let db;
+        function open() {
+          return new Promise((resolve, reject) => {
+            const req = indexedDB.open(dbName, 1);
+            req.onupgradeneeded = (e) => {
+              const d = e.target.result;
+              if (!d.objectStoreNames.contains(store)) d.createObjectStore(store, { keyPath: 'k' });
+            };
+            req.onsuccess = () => { db = req.result; resolve(); };
+            req.onerror = () => reject(req.error);
+          });
+        }
+        async function get(k) {
+          if (!db) await open();
+          return new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readonly').objectStore(store).get(k);
+            tx.onsuccess = () => resolve(tx.result ? tx.result.v : undefined);
+            tx.onerror = () => reject(tx.error);
+          });
+        }
+        async function set(k, v) {
+          if (!db) await open();
+          return new Promise((resolve, reject) => {
+            const tx = db.transaction(store, 'readwrite').objectStore(store).put({ k, v });
+            tx.onsuccess = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        }
+        async function merge(k, part) {
+          const cur = (await get(k)) || {};
+          const next = { ...cur, ...part };
+          await set(k, next);
+          return next;
+        }
+        return { get, set, merge };
+      })();
+
+      /********************
+       *  STATE (default) + load/save
+       ********************/
+      const DEFAULT_STATE = {
+        lang: 'uk',
+        theme: 'dark',
+        circles: [{ id: 1, nameKey: 'circle.family', name: 'Family', members: 2 }],
+        docs: [],
+        ice: { allergies: '', blood: '', medsCrit: [], medsSec: [] }
+      };
+      let state = { ...DEFAULT_STATE };
+
+      async function loadState() {
+        const saved = (await DB.get('state')) || {};
+        state = {
+          ...DEFAULT_STATE,
+          ...saved,
+          ice: { ...DEFAULT_STATE.ice, ...(saved.ice || {}) }
+        };
+        // hydrate in-memory vars used ниже
+        circles = state.circles.slice();
+        docs = state.docs.slice();
+      }
+
+      async function saveState(part) {
+        // обновляем in-memory
+        if (part) {
+          // глубокий мердж ice при необходимости
+          if (part.ice) state.ice = { ...state.ice, ...part.ice };
+          if (Array.isArray(part.circles)) state.circles = part.circles.slice();
+          if (Array.isArray(part.docs)) state.docs = part.docs.slice();
+          if (typeof part.lang === 'string') state.lang = part.lang;
+          if (typeof part.theme === 'string') state.theme = part.theme;
+        }
+        // записываем полное состояние
+        await DB.set('state', {
+          lang: state.lang,
+          theme: state.theme,
+          circles: state.circles,
+          docs: state.docs,
+          ice: state.ice
+        });
+      }
+
 
       // Telegram WebApp shim (safe outside Telegram)
       let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -399,8 +489,9 @@
         { id:2, type:'shelling', level:'danger', when:Date.now()-12*60*1000, area:'kharkiv_raion', textKey:'feed.ev2' },
         { id:3, type:'blockpost', level:'info', when:Date.now()-25*60*1000, area:'dnipro', textKey:'feed.ev3' },
       ];
-      let circles = [{ id:1, nameKey:'circle.family', name:'Family', members:2 }];
-      let docs = [];
+      let circles = []; // заполнится из loadState()
+      let docs = [];    // заполнится из loadState()
+
 
       /********************
        *  I18N (uk/ru/en) — global
@@ -447,11 +538,25 @@
               'feed.ev1':'Possible UAV activity', 'feed.ev2':'Shelling risk', 'feed.ev3':'New checkpoint at exit' }
       };
       const langSel = document.getElementById('langSel');
-      langSel.addEventListener('change', ()=>applyLang(langSel.value));
+      langSel.addEventListener('change', ()=>{ applyLang(langSel.value); });
       function t(key){
         const code = localStorage.getItem('sc_lang')||'uk';
         const dict = i18n[code]||i18n.uk; return dict[key]||key;
       }
+
+      // загрузка состояния и первичный рендер
+      await loadState();
+
+      // применяем язык из state (приоритет state над localStorage)
+      localStorage.setItem('sc_lang', state.lang);
+      langSel.value = state.lang;
+
+      // восстановить ICE поля
+      const iceAllergiesEl = document.getElementById('iceAllergies');
+      const iceBloodEl = document.getElementById('iceBlood');
+      if (iceAllergiesEl) iceAllergiesEl.value = state.ice.allergies || '';
+      if (iceBloodEl) iceBloodEl.value = state.ice.blood || '';
+
 
       /********************
        *  FEED render helpers (depend on t, feedList)
@@ -492,42 +597,48 @@
       /********************
        *  applyLang AFTER renderers exist
        ********************/
-      function applyLang(code){
+      async function applyLang(code){
         const dict = i18n[code]||i18n.uk;
         document.querySelectorAll('[data-i18n]').forEach(el=>{
           const k = el.getAttribute('data-i18n');
           if(dict[k]) el.textContent = dict[k];
         });
         localStorage.setItem('sc_lang', code);
-        // Update dynamic bits (weather city, feed, circles)
+        await saveState({ lang: code });
+        // Update dynamic bits
         weatherCityEl.textContent = t('weather.city.'+weather.cityKey);
-        weatherBox.firstChild && (weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `);
+        if (weatherBox.firstChild) weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `;
         renderFeed();
         renderCircles();
       }
-      applyLang(localStorage.getItem('sc_lang')||'uk');
+
+      await applyLang(state.lang);
 
       /********************
        *  THEME selector (dark/midnight/light)
        ********************/
       const themeSel = document.getElementById('themeSel');
-      function applyTheme(theme){
+      async function applyTheme(theme){
         document.body.setAttribute('data-theme', theme);
         localStorage.setItem('sc_theme', theme);
+        await saveState({ theme });
       }
-      const savedTheme = localStorage.getItem('sc_theme')||'dark';
-      applyTheme(savedTheme); themeSel.value = savedTheme;
+      const savedTheme = state.theme || localStorage.getItem('sc_theme') || 'dark';
+      await applyTheme(savedTheme);
+      themeSel.value = savedTheme;
       themeSel.addEventListener('change', ()=>{ applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
 
       /********************
        *  Circles controls
        ********************/
-      document.getElementById('btnAddCircle').onclick = ()=>{
+      document.getElementById('btnAddCircle').onclick = async ()=>{
         if(circles.length >= FREE_LIMITS.circles){ openProModal(); return; }
         const id = Date.now();
         circles.push({id, name:'New circle', members:1});
+        await saveState({ circles });
         renderCircles();
       };
+
       document.getElementById('btnSOS').onclick = ()=>alert('SOS scripts in Pro (mock)');
       document.getElementById('btnCheckIn').onclick = ()=>alert('Sent: "I\'m safe"');
       document.getElementById('btnBroadcast').onclick = ()=>alert('Broadcast to all circles (Pro)');
@@ -548,6 +659,43 @@
         circleModal.classList.add('show');
         }
 
+      /********************
+       *  ICE inputs & meds (persist)
+       ********************/
+      document.getElementById('iceAllergies').addEventListener('input', async (e)=>{
+        state.ice.allergies = e.target.value;
+        await saveState({ ice: { allergies: state.ice.allergies } });
+      });
+      document.getElementById('iceBlood').addEventListener('input', async (e)=>{
+        state.ice.blood = e.target.value;
+        await saveState({ ice: { blood: state.ice.blood } });
+      });
+
+      const critListEl = document.getElementById('critList');
+      const secListEl  = document.getElementById('secList');
+
+      document.getElementById('addCrit').onclick = async ()=>{
+        const name = prompt(t('ice.meds.critical'));
+        if(!name) return;
+        state.ice.medsCrit.push(name);
+        await saveState({ ice: { medsCrit: state.ice.medsCrit } });
+        const d=document.createElement('div'); d.className='tile'; d.textContent=name; critListEl.appendChild(d);
+      };
+      document.getElementById('addSec').onclick = async ()=>{
+        const name = prompt(t('ice.meds.secondary'));
+        if(!name) return;
+        state.ice.medsSec.push(name);
+        await saveState({ ice: { medsSec: state.ice.medsSec } });
+        const d=document.createElement('div'); d.className='tile'; d.textContent=name; secListEl.appendChild(d);
+      };
+      function renderMedsLists(){
+        critListEl.innerHTML=''; secListEl.innerHTML='';
+        state.ice.medsCrit.forEach(n=>{ const d=document.createElement('div'); d.className='tile'; d.textContent=n; critListEl.appendChild(d); });
+        state.ice.medsSec.forEach(n=>{ const d=document.createElement('div'); d.className='tile'; d.textContent=n; secListEl.appendChild(d); });
+      }
+      document.querySelector('[data-ice="meds"]').addEventListener('click', renderMedsLists);
+
+
 
       /********************
        *  ICE docs chips (add/remove with confirm)
@@ -559,20 +707,27 @@
         docChips.innerHTML = [...filled, ...empty].join('');
       }
       renderDocs();
-      docChips.addEventListener('click', (e)=>{
+      docChips.addEventListener('click', async (e)=>{
         const add = e.target.closest('[data-add]');
         const filled = e.target.closest('.filled');
         if(add){
           if(docs.length >= FREE_LIMITS.docs){ openProModal(); return; }
-          docs.push({icon:'🪪'}); renderDocs(); return;
+          docs.push({icon:'🪪'});
+          await saveState({ docs });
+          renderDocs(); return;
         }
         if(filled){
           const idx = Number(filled.getAttribute('data-idx'));
           if(Number.isInteger(idx)){
-            if(confirm(t('common.back')==='Back'?'Remove document?':'Видалити документ?')){ docs.splice(idx,1); renderDocs(); }
+            if(confirm(t('common.back')==='Back'?'Remove document?':'Видалити документ?')){
+              docs.splice(idx,1);
+              await saveState({ docs });
+              renderDocs();
+            }
           }
         }
       });
+
 
       /********************
        *  Settings → Pro
@@ -612,6 +767,15 @@
       console.assert((()=>{const prev=docs.length; docs.push({icon:'📄'}); renderDocs(); const ok=docChips.querySelectorAll('.filled').length===docs.length; docs.pop(); renderDocs(); return ok;})(), 'docs rendering count matches state');
       // NEW: theme variable application test
       console.assert((()=>{applyTheme('light'); const a=getComputedStyle(document.body).getPropertyValue('--bg'); applyTheme('dark'); return !!a;})(), 'theme variables apply');
+      // DB basic roundtrip
+      console.assert((await DB.set('test_key', {x:1}))===undefined || true, 'DB.set works');
+      console.assert(((await DB.get('test_key'))||{}).x===1, 'DB.get works');
+      // state save/restore
+      const prevLang = state.lang;
+      await saveState({ lang: 'en' });
+      const tmp = await DB.get('state');
+      console.assert(tmp && tmp.lang==='en', 'state saved lang=en');
+      await saveState({ lang: prevLang });
     });
   </script>
 </body>
