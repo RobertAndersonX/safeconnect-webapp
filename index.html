@@ -541,7 +541,7 @@
               'feed.ev1':'Possible UAV activity', 'feed.ev2':'Shelling risk', 'feed.ev3':'New checkpoint at exit' }
       };
       const langSel = document.getElementById('langSel');
-      langSel.addEventListener('change', ()=>{ applyLang(langSel.value); });
+      langSel.addEventListener('change', async () => { await applyLang(langSel.value); });
       function t(key){
         const code = localStorage.getItem('sc_lang')||'uk';
         const dict = i18n[code]||i18n.uk; return dict[key]||key;
@@ -601,37 +601,34 @@
        *  applyLang AFTER renderers exist
        ********************/
       async function applyLang(code){
-        const dict = i18n[code]||i18n.uk;
-        document.querySelectorAll('[data-i18n]').forEach(el=>{
-          const k = el.getAttribute('data-i18n');
-          if(dict[k]) el.textContent = dict[k];
-        });
-        localStorage.setItem('sc_lang', code);
-        await saveState({ lang: code });
-        // Update dynamic bits
-        weatherCityEl.textContent = t('weather.city.'+weather.cityKey);
-        if (weatherBox.firstChild) weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `;
-        renderFeed();
-        renderCircles();
-      }
-
-      await applyLang(state.lang);
-      langSel.value = state.lang;
+          const dict = i18n[code]||i18n.uk;
+          document.querySelectorAll('[data-i18n]').forEach(el=>{
+            const k = el.getAttribute('data-i18n');
+            if(dict[k]) el.textContent = dict[k];
+          });
+          localStorage.setItem('sc_lang', code);
+          // Update dynamic bits
+          weatherCityEl.textContent = t('weather.city.'+weather.cityKey);
+          if (weatherBox.firstChild) weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `;
+          renderFeed();
+          renderCircles();
+          await saveState({ lang: code });
+        }
 
 
       /********************
        *  THEME selector (dark/midnight/light)
        ********************/
       const themeSel = document.getElementById('themeSel');
-      async function applyTheme(theme){
-        document.body.setAttribute('data-theme', theme);
-        localStorage.setItem('sc_theme', theme);
-        await saveState({ theme });
-      }
-      const savedTheme = state.theme || localStorage.getItem('sc_theme') || 'dark';
-      await applyTheme(savedTheme);
-      themeSel.value = savedTheme;
-      themeSel.addEventListener('change', ()=>{ applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
+        async function applyTheme(theme){
+          document.body.setAttribute('data-theme', theme);
+          localStorage.setItem('sc_theme', theme);
+          await saveState({ theme: theme });
+        }
+        const savedTheme = state.theme || localStorage.getItem('sc_theme') || 'dark';
+        await applyTheme(savedTheme);
+        themeSel.value = savedTheme;
+        themeSel.addEventListener('change', async () => { await applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
 
       // ← ВСТАВЬ ЗДЕСЬ
       initTelegram();
