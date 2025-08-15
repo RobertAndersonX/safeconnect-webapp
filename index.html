@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>SafeConnect — MVP</title>
   <!-- D3: Added manifest link and theme-color -->
-  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0b0f14">
   <style>
     :root{
@@ -96,7 +96,19 @@
     /* equal widths */
     .btn.equal{ width:128px }
     @media (max-width:360px){ .btn.equal{ width:112px } }
-  </style>
+    /* PATCH 1: + кнопкам небольшой внутренний отступ от правого края */
+    .btn.edge-pad{ margin-right:8px }
+    /* маленькие кнопки внутри плиток лекарств */
+    .btn.mini{ height:32px; padding:0 10px; border-radius:10px }
+/* PATCH 3: явный цвет текста/плейсхолдера для input/textarea */
+    input.pill, textarea.pill{ color:var(--text); background:var(--glass) }
+    input.pill::placeholder, textarea.pill::placeholder{ color:var(--muted) }
+/* PATCH 4: подгон правого края “Додати” под правый край кнопки “Відкрити” в плитках */
+    #btnAddCircle{ margin-right:10px }  /* равен внутреннему padding .tile */
+    /* PATCH 5: одинаковая ширина селектов в настройках */
+    .select.wide{ width:210px }          /* одинаковая для языка и темы */
+    @media (max-width:420px){ .select.wide{ width:180px } } /* чуть уже на очень узких */
+</style>
 </head>
 <body>
   <header>
@@ -181,10 +193,10 @@
       <section id="screen-ice-meds" class="screen">
         <div class="card">
           <div class="row"><div class="h" data-i18n="ice.meds">Ліки</div><button class="btn" data-back="ice">← <span data-i18n="common.back">Назад</span></button></div>
-          <div class="row"><div class="muted" data-i18n="ice.meds.critical">Життєво важливі</div><button class="btn" id="addCrit">＋</button></div>
+          <div class="row"><div class="muted" data-i18n="ice.meds.critical">Життєво важливі</div><button class="btn edge-pad" id="addCrit">＋</button></div>
           <div class="list" id="critList"></div>
           <div style="height:8px"></div>
-          <div class="row"><div class="muted" data-i18n="ice.meds.secondary">Другорядні</div><button class="btn" id="addSec">＋</button></div>
+          <div class="row"><div class="muted" data-i18n="ice.meds.secondary">Другорядні</div><button class="btn edge-pad" id="addSec">＋</button></div>
           <div class="list" id="secList"></div>
         </div>
       </section>
@@ -542,16 +554,16 @@
           const iter = 120_000;
           const key  = await CryptoSC.deriveKeyFromPIN(pin, salt, iter);
 
-          // шифруем актуальный ICE
           const icePayload = await CryptoSC.encryptJSON(key, state.ice);
 
-          // сохраняем шифротекст и метаданные
           await DB.set('ice_cipher', icePayload);
           await DB.set('sec', { hasPIN:true, salt: btoa(String.fromCharCode(...salt)), iter });
 
-          // чистим ICE из state и фиксируем, что он “заблокирован”
           await saveState({ ice: undefined, iceLocked: true });
-          renderICEStatus(); // <-- добавить
+          /* PATCH Opt: сразу скрыть значения на экране после установки PIN */
+          if(iceAllergiesEl) iceAllergiesEl.value = '';
+          if(iceBloodEl)     iceBloodEl.value     = '';
+          renderMedsLists();
           alert('PIN встановлено. Дані ICE зашифровані.');
         }
 
@@ -921,13 +933,39 @@
       const critListEl = document.getElementById('critList');
       const secListEl  = document.getElementById('secList');
 
+      /* PATCH 2B: редактирование/удаление по клику на ✎/× */
+      document.getElementById('screen-ice-meds').addEventListener('click', async (e)=>{
+        const row = e.target.closest('.tile[data-kind]');
+        if(!row) return;
+        const kind = row.dataset.kind;
+        const idx  = Number(row.dataset.idx);
+
+        if(e.target.closest('[data-edit]')){
+          const cur = kind==='crit' ? state.ice.medsCrit[idx] : state.ice.medsSec[idx];
+          const next = sanitizeText(prompt(t(kind==='crit'?'ice.meds.critical':'ice.meds.secondary'), cur) || cur, 120);
+          if(!next || next===cur) return;
+          if(kind==='crit') state.ice.medsCrit[idx]=next; else state.ice.medsSec[idx]=next;
+          await saveState({ ice:{ medsCrit: state.ice.medsCrit, medsSec: state.ice.medsSec }});
+          await persistICEIfProtected();
+          renderMedsLists();
+        }
+
+        if(e.target.closest('[data-del]')){
+          if(!confirm(t('common.back')==='Back'?'Delete item?':'Видалити елемент?')) return;
+          if(kind==='crit') state.ice.medsCrit.splice(idx,1); else state.ice.medsSec.splice(idx,1);
+          await saveState({ ice:{ medsCrit: state.ice.medsCrit, medsSec: state.ice.medsSec }});
+          await persistICEIfProtected();
+          renderMedsLists();
+        }
+      });
+
       document.getElementById('addCrit').onclick = async ()=>{
         const name = sanitizeText(prompt(t('ice.meds.critical')) || '', 120);
         if(!name) return;
         state.ice.medsCrit.push(name);
         await saveState({ ice: { medsCrit: state.ice.medsCrit } });
         await persistICEIfProtected();
-        const d=document.createElement('div'); d.className='tile'; d.textContent=name; critListEl.appendChild(d);
+        renderMedsLists(); // PATCH 2A: Используем renderMedsLists для рендеринга
       };
 
       document.getElementById('addSec').onclick = async ()=>{
@@ -936,14 +974,23 @@
         state.ice.medsSec.push(name);
         await saveState({ ice: { medsSec: state.ice.medsSec } });
         await persistICEIfProtected();
-        const d=document.createElement('div'); d.className='tile'; d.textContent=name; secListEl.appendChild(d);
+        renderMedsLists(); // PATCH 2A: Используем renderMedsLists для рендеринга
       };
 
+      /* PATCH 2A: интерактивный рендер с кнопками ✎ и × */
       function renderMedsLists(){
-        critListEl.innerHTML=''; secListEl.innerHTML='';
-        state.ice.medsCrit.forEach(n=>{ const d=document.createElement('div'); d.className='tile'; d.textContent=n; critListEl.appendChild(d); });
-        state.ice.medsSec.forEach(n=>{ const d=document.createElement('div'); d.className='tile'; d.textContent=n; secListEl.appendChild(d); });
+        const rowHTML = (name, kind, idx) => `
+          <div class="tile row" data-kind="${kind}" data-idx="${idx}">
+            <div class="med-text" style="word-break:break-word">${name}</div>
+            <div style="display:flex;gap:6px">
+              <button class="btn mini" data-edit>✎</button>
+              <button class="btn mini danger" data-del>×</button>
+            </div>
+          </div>`;
+        critListEl.innerHTML = state.ice.medsCrit.map((n,i)=>rowHTML(n,'crit',i)).join('');
+        secListEl.innerHTML  = state.ice.medsSec.map((n,i)=>rowHTML(n,'sec',i)).join('');
       }
+
       document.querySelector('[data-ice="meds"]').addEventListener('click', renderMedsLists);
 
 
@@ -1046,7 +1093,7 @@
   <!-- PWA: register Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(console.error);
+      navigator.serviceWorker.register('sw.js')
     }
   </script>
 </body>
