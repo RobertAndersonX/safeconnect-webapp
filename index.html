@@ -96,18 +96,18 @@
     /* equal widths */
     .btn.equal{ width:128px }
     @media (max-width:360px){ .btn.equal{ width:112px } }
-    /* PATCH 1: + кнопкам небольшой внутренний отступ от правого края */
-    .btn.edge-pad{ margin-right:8px }
+    /* PATCH 1: + кнопкам небольшой внутренний отступ от правого края и снизу */
+    .btn.edge-pad{ margin-right:8px; margin-bottom:12px }
     /* маленькие кнопки внутри плиток лекарств */
     .btn.mini{ height:32px; padding:0 10px; border-radius:10px }
-/* PATCH 3: явный цвет текста/плейсхолдера для input/textarea */
+    /* PATCH 3: явный цвет текста/плейсхолдера для input/textarea */
     input.pill, textarea.pill{ color:var(--text); background:var(--glass) }
     input.pill::placeholder, textarea.pill::placeholder{ color:var(--muted) }
-/* PATCH 4: подгон правого края “Додати” под правый край кнопки “Відкрити” в плитках */
-    #btnAddCircle{ margin-right:10px }  /* равен внутреннему padding .tile */
-    /* PATCH 5: одинаковая ширина селектов в настройках */
-    .select.wide{ width:210px }          /* одинаковая для языка и темы */
-    @media (max-width:420px){ .select.wide{ width:180px } } /* чуть уже на очень узких */
+    /* PATCH 4: подгон правого края “Додати” под правый край кнопки “Відкрити” в плитках */
+    #btnAddCircle{ margin-right:10px }
+    /* PATCH 5: одинаковая ширина селектов в настройках, уменьшена на 35% */
+    .select.wide{ width:135px }
+    @media (max-width:420px){ .select.wide{ width:117px } }
 </style>
 </head>
 <body>
