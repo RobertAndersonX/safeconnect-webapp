@@ -5,7 +5,17 @@
   <!-- D3: Added manifest link and theme-color -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0b0f14">
-  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' data: https://assets.grok.com https://assets.grokusercontent.com https://prodregistryv2.org https://*.statsig.com https://featuregates.org https://statsigapi.net https://*.statsigapi.net https://*.statsigcdn.com https://featureassets.org https://assetsconfigcdn.org https://prodregistryv2.org https://cloudflare-dns.com https://beyondwickedmapping.org https://ssff.grok.com https://*.x.ai https://*.stripe.com https://featureassets.org https://*.googleapis.com https://*.google.com https://*.withgoogle.com https://*.gstatic.com https://*.googletagmanager.com https://*.google-analytics.com https://*.microsoftonline.com https://*.live.com https://*.microsoft.com https://*.onedrive.com wss://livekit.mouseion.dev https://livekit.mouseion.dev wss://livekit.grok.com https://livekit.grok.com https://*.mixpanel.com *.workers.dev;">
+  <meta http-equiv="Content-Security-Policy"
+    content="
+      default-src 'self';
+      connect-src 'self' https://*.workers.dev data: blob:;
+      img-src 'self' data: blob:;
+      script-src 'self' 'unsafe-inline';
+      style-src 'self' 'unsafe-inline';
+      font-src 'self' data:;
+      base-uri 'self';
+      frame-ancestors 'self';
+    ">
   <style>
     :root{
       --bg:#0b0f14; --surface:#10161d; --glass:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
