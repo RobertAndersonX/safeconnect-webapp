@@ -331,20 +331,36 @@
     // Ensure DOM is fully parsed before any element access / function calls
     document.addEventListener('DOMContentLoaded', async () => {
 
-      // [E5] ==== API client ====
-      // Жёстко задаём базовый URL для API, чтобы не приходилось кликать кнопку «URL»
-      const API_BASE = 'https://safeconnect-api.spacewenderer1.workers.dev'; 
+      // [E5] ==== API client (REPLACEMENT) ====
+      // 1) Берём базу из localStorage, иначе — dev-воркер по умолчанию
+      const API_BASE = (
+        localStorage.getItem('sc_api_base') ||
+        'https://safeconnect-api-dev.spacewenderer1.workers.dev'
+      ).trim();
+
+      // 2) Пробрасываем в глобал, чтобы можно было смотреть в консоли
+      window.API_BASE = API_BASE;
+
+      // 3) Токен из localStorage
       let accessToken = localStorage.getItem('sc_access_token') || null;
 
+      // 4) Клиент с CORS
       async function apiFetch(path, opts = {}) {
         if (!API_BASE) throw new Error('API_BASE not set');
         const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-        const r = await fetch(API_BASE + path, { ...opts, headers });
-        if (!r.ok) throw new Error(`API ${path} ${r.status}`);
-        return r.json();
+        const res = await fetch(API_BASE + path, { ...opts, headers, mode: 'cors' });
+        if (!res.ok) throw new Error(`API ${path} ${res.status}`);
+        return res.json();
       }
-      function setApiBase(u) { localStorage.setItem('sc_api_base', u); location.reload(); }
+
+      // 5) Смена базы через UI (кнопка "URL")
+      function setApiBase(u) {
+        localStorage.setItem('sc_api_base', String(u || '').trim());
+        location.reload();
+      }
+      window.setApiBase = setApiBase
+      
 
       /********************
        *  CLOCK (Kyiv) + Weather placeholder
