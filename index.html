@@ -914,6 +914,29 @@
       // ← ВСТАВЬ ЗДЕСЬ
       initTelegram();
 
+      // после initTelegram(); добавь:
+      if (tg && tg.initData && !accessToken) {
+        try {
+          const res = await fetch(API_BASE + '/verify-telegram', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ init_data: tg.initData })
+          });
+          if (res.ok) {
+            const { access } = await res.json();
+            accessToken = access;
+            localStorage.setItem('sc_access_token', accessToken);
+            await syncFromServer();
+          } else {
+            console.warn('tg auth fail', await res.json().catch(()=>({})));
+          }
+        } catch (e) { console.warn('tg auth error', e); }
+      }
+
+      const devBtn = document.getElementById('btnDevLogin');
+      if (tg && devBtn) devBtn.style.display = 'none';
+
+
       // [E5] показать/сменить API BASE
       const apiBaseShow = document.getElementById('apiBaseShow');
       if (apiBaseShow) apiBaseShow.textContent = API_BASE || '(не задан)';
