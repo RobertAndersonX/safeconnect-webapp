@@ -93,11 +93,11 @@
     .modal .box{max-width:520px;width:100%;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.25));border:1px solid var(--line);border-radius:16px;padding:14px}
     .modal.show{display:flex}
     .note{font-size:12px;color:var(--muted)}
-    /* equal widths */
+/* equal widths */
     .btn.equal{ width:128px }
     @media (max-width:360px){ .btn.equal{ width:112px } }
-    /* PATCH 1: + кнопкам небольшой внутренний отступ от правого края и снизу */
-    .btn.edge-pad{ margin-right:8px; margin-bottom:12px }
+    /* PATCH 1: + кнопкам небольшой внутренний отступ от правого края и снизу (увеличено пространство) */
+    .btn.edge-pad{ margin-right:8px; margin-bottom:16px }
     /* маленькие кнопки внутри плиток лекарств */
     .btn.mini{ height:32px; padding:0 10px; border-radius:10px }
     /* PATCH 3: явный цвет текста/плейсхолдера для input/textarea */
@@ -105,9 +105,9 @@
     input.pill::placeholder, textarea.pill::placeholder{ color:var(--muted) }
     /* PATCH 4: подгон правого края “Додати” под правый край кнопки “Відкрити” в плитках */
     #btnAddCircle{ margin-right:10px }
-    /* PATCH 5: одинаковая ширина селектов в настройках, уменьшена на 35% */
-    .select.wide{ width:135px }
-    @media (max-width:420px){ .select.wide{ width:117px } }
+    /* PATCH 5: одинаковая ширина селектов в настройках, уменьшена дополнительно */
+    .select.wide{ width:120px }
+    @media (max-width:420px){ .select.wide{ width:104px } }
 </style>
 </head>
 <body>
@@ -223,23 +223,29 @@
       <section id="screen-settings" class="screen">
         <div class="card">
           <div class="h" data-i18n="settings.title">Налаштування</div>
-          <div class="row"><div class="muted" data-i18n="settings.lang">Мова</div>
+          <div class="row">
+            <div class="muted" data-i18n="settings.lang">Мова</div>
             <select id="langSel" class="select wide">
               <option value="uk">Українська</option>
               <option value="ru">Русский</option>
               <option value="en">English</option>
             </select>
           </div>
-          <div style="height:10px"></div>
-          <div class="row"><div class="muted" data-i18n="settings.theme">Тема</div>
+          <div style="height:15px"></div> <!-- Увеличил отступ -->
+          <div class="row">
+            <div class="muted" data-i18n="settings.theme">Тема</div>
             <select id="themeSel" class="select wide">
               <option value="dark">Dark</option>
               <option value="midnight">Midnight</option>
               <option value="light">Light</option>
             </select>
           </div>
-          <div style="height:10px"></div>
+          <div style="height:15px"></div> <!-- Увеличил отступ -->
           <button class="btn" id="btnPro" data-i18n="settings.goPro">Перейти на Pro</button>
+          <div style="height:15px"></div> <!-- Увеличил отступ -->
+          <button class="btn" id="btnDevLogin">Dev login</button>
+          <div style="height:10px"></div>
+          <div class="note">API: <span id="apiBaseShow">—</span> <button class="btn mini" id="setApiBaseBtn">URL</button></div>
         </div>
       </section>
 
@@ -315,6 +321,20 @@
   <script>
     // Ensure DOM is fully parsed before any element access / function calls
     document.addEventListener('DOMContentLoaded', async () => {
+
+      // [E5] ==== API client ====
+      const API_BASE = localStorage.getItem('sc_api_base') || ''; // можешь сразу прописать сюда свой URL строкой
+      let accessToken = localStorage.getItem('sc_access_token') || null;
+
+      async function apiFetch(path, opts = {}) {
+        if (!API_BASE) throw new Error('API_BASE not set');
+        const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+        const r = await fetch(API_BASE + path, { ...opts, headers });
+        if (!r.ok) throw new Error(`API ${path} ${r.status}`);
+        return r.json();
+      }
+      function setApiBase(u) { localStorage.setItem('sc_api_base', u); location.reload(); }
 
       /********************
        *  CLOCK (Kyiv) + Weather placeholder
@@ -560,6 +580,7 @@
           await DB.set('sec', { hasPIN:true, salt: btoa(String.fromCharCode(...salt)), iter });
 
           await saveState({ ice: undefined, iceLocked: true });
+          renderICEStatus();
           /* PATCH Opt: сразу скрыть значения на экране после установки PIN */
           if(iceAllergiesEl) iceAllergiesEl.value = '';
           if(iceBloodEl)     iceBloodEl.value     = '';
@@ -866,37 +887,120 @@
 
       // ← ВСТАВЬ ЗДЕСЬ
       initTelegram();
+
+      // [E5] показать/сменить API BASE
+      const apiBaseShow = document.getElementById('apiBaseShow');
+      if (apiBaseShow) apiBaseShow.textContent = API_BASE || '(не задан)';
+      const setApiBaseBtn = document.getElementById('setApiBaseBtn');
+      if (setApiBaseBtn) setApiBaseBtn.onclick = () => {
+        const u = prompt('API base URL[](https://…):', API_BASE || 'https://safeconnect-api-dev.spacewenderer1.workers.dev');
+        if (u != null) setApiBase(u.trim());
+      };
+
+      // [E5] dev login → запросить у API access токен
+      const btnDevLogin = document.getElementById('btnDevLogin');
+      if (btnDevLogin) btnDevLogin.onclick = async () => {
+        if (!API_BASE) { alert('Сначала укажи API URL'); return; }
+        try {
+          const dev_secret = prompt('DEV_LOGIN_SECRET (как в wrangler.toml или Dashboard):', '');
+          const res = await apiFetch('/verify', {
+            method: 'POST',
+            body: JSON.stringify({ dev_secret, dev_user: 'me' })
+          });
+          accessToken = res.access;
+          localStorage.setItem('sc_access_token', accessToken);
+          alert('Dev login OK');
+          await syncFromServer();
+        } catch (e) { console.error(e); alert('Login failed'); }
+      };
       
       /********************
        *  Circles controls
        ********************/
-      document.getElementById('btnAddCircle').onclick = async ()=>{
-        if(circles.length >= FREE_LIMITS.circles){ openProModal(); return; }
-        const id = Date.now();
-        circles.push({id, name:'New circle', members:1});
+      document.getElementById('btnAddCircle').onclick = async () => {
+        if (circles.length >= FREE_LIMITS.circles) { openProModal(); return; }
+        const nm = prompt('Назва кола', 'New circle');
+        if (!nm) return;
+        const cir = await createCircle(nm);
+        circles.push(cir);
         await saveState({ circles });
         renderCircles();
       };
 
-      document.getElementById('btnSOS').onclick = ()=>alert('SOS scripts in Pro (mock)');
-      document.getElementById('btnCheckIn').onclick = ()=>alert('Sent: "I\'m safe"');
-      document.getElementById('btnBroadcast').onclick = ()=>alert('Broadcast to all circles (Pro)');
-        const circleModal = document.getElementById('circleModal');
-        const circleTitle = document.getElementById('circleTitle');
-        const memberList  = document.getElementById('memberList');
-        document.getElementById('circleClose').onclick = ()=> circleModal.classList.remove('show');
-        document.getElementById('circleEdit').onclick  = ()=> alert('Редагування ролей буде на Етапі 3–4');
+      document.getElementById('btnSOS').onclick = () => alert('SOS scripts in Pro (mock)');
+      document.getElementById('btnCheckIn').onclick = () => alert('Sent: "I\'m safe"');
+      document.getElementById('btnBroadcast').onclick = () => alert('Broadcast to all circles (Pro)');
+      const circleModal = document.getElementById('circleModal');
+      const circleTitle = document.getElementById('circleTitle');
+      const memberList = document.getElementById('memberList');
+      document.getElementById('circleClose').onclick = () => circleModal.classList.remove('show');
+      document.getElementById('circleEdit').onclick = () => alert('Редагування ролей буде на Етапі 3–4');
 
-        function showCircle(id){
-        const c = circles.find(x=>x.id===id);
-        if(!c) return;
+      function showCircle(id) {
+        const c = circles.find(x => x.id === id);
+        if (!c) return;
         circleTitle.textContent = c.name || 'Коло';
         memberList.innerHTML = `
-            <div class="tile row"><div><b>Власник</b><div class="muted">1 ${t('circle.members')}</div></div><span class="muted">Owner</span></div>
-            <div class="tile row"><div><b>Учасник</b><div class="muted">1 ${t('circle.members')}</div></div><span class="muted">Member</span></div>
+          <div class="tile row">
+            <div>
+              <b>Власник</b>
+              <div class="muted">1 ${t('circle.members')}</div>
+            </div>
+            <span class="muted">Owner</span>
+          </div>
+          <div class="tile row">
+            <div>
+              <b>Учасник</b>
+              <div class="muted">1 ${t('circle.members')}</div>
+            </div>
+            <span class="muted">Member</span>
+          </div>
         `;
         circleModal.classList.add('show');
+
+        // Добавляем кнопку удаления
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Видалити коло';
+        deleteBtn.className = 'btn';
+        deleteBtn.onclick = async () => {
+          if (confirm(`Ви впевнені, що хочете видалити коло "${c.name}"?`)) {
+            await deleteCircle(c.id);
+            circles = circles.filter(x => x.id !== c.id);
+            await saveState({ circles });
+            renderCircles();
+            circleModal.classList.remove('show');
+          }
+        };
+        memberList.appendChild(deleteBtn);
+      }
+
+      // [E5] helpers
+      function apiReady() { return !!API_BASE && !!accessToken; }
+
+      async function syncFromServer() {
+        if (!apiReady()) return;
+        try {
+          const srvCircles = await apiFetch('/authed/circles');
+          circles = srvCircles.map(c => ({ id: c.id, name: c.name, members: 1 }));
+          await saveState({ circles });
+          renderCircles();
+        } catch (e) { console.warn('syncFromServer fail', e); }
+      }
+
+      async function createCircle(name) {
+        if (apiReady()) {
+          const r = await apiFetch('/authed/circles', { method: 'POST', body: JSON.stringify({ name }) });
+          return { id: r.id, name: r.name, members: 1 };
+        } else {
+          return { id: Date.now(), name, members: 1 };
         }
+      }
+
+      async function deleteCircle(id) {
+        if (apiReady()) {
+          try { await apiFetch('/authed/circles/' + id, { method: 'DELETE' }); } catch (e) { console.warn(e); }
+        }
+      }
 
       /********************
        *  Validation helpers
