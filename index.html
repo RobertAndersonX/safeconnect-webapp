@@ -914,13 +914,21 @@
       // ← ВСТАВЬ ЗДЕСЬ
       initTelegram();
 
-      // после initTelegram(); добавь:
-      if (tg && tg.initData && !accessToken) {
+      // === Telegram auth (robust) ===
+      async function tryTelegramAuth() {
+        if (!tg || accessToken) return;
+
+        const init_str = (typeof tg.initData === 'string' ? tg.initData : '') || '';
+        const init_obj = tg.initDataUnsafe || null;
+
+        // если не в Telegram — выходим
+        if (!init_str && !init_obj) return;
+
         try {
           const res = await fetch(API_BASE + '/verify-telegram', {
             method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ init_data: tg.initData })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ init_data: init_str, init_obj })
           });
           if (res.ok) {
             const { access } = await res.json();
@@ -930,12 +938,17 @@
           } else {
             console.warn('tg auth fail', await res.json().catch(()=>({})));
           }
-        } catch (e) { console.warn('tg auth error', e); }
+        } catch (e) {
+          console.warn('tg auth error', e);
+        }
       }
 
+      initTelegram();
+      await tryTelegramAuth();
+
+      // прячем Dev login, если открыто внутри Telegram
       const devBtn = document.getElementById('btnDevLogin');
       if (tg && devBtn) devBtn.style.display = 'none';
-
 
       // [E5] показать/сменить API BASE
       const apiBaseShow = document.getElementById('apiBaseShow');
@@ -947,8 +960,7 @@
       };
 
       // [E5] dev login → запросить у API access токен
-      const btnDevLogin = document.getElementById('btnDevLogin');
-      if (btnDevLogin) btnDevLogin.onclick = async () => {
+      if (devBtn) devBtn.onclick = async () => {
         if (!API_BASE) { alert('Сначала укажи API URL'); return; }
         try {
           const dev_secret = prompt('DEV_LOGIN_SECRET (как в wrangler.toml или Dashboard):', '');
