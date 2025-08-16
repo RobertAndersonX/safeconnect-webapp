@@ -322,7 +322,8 @@
     document.addEventListener('DOMContentLoaded', async () => {
 
       // [E5] ==== API client ====
-      const API_BASE = localStorage.getItem('sc_api_base') || ''; // можешь сразу прописать сюда свой URL строкой
+      // Жёстко задаём базовый URL для API, чтобы не приходилось кликать кнопку «URL»
+      const API_BASE = 'https://safeconnect-api.spacewenderer1.workers.dev'; 
       let accessToken = localStorage.getItem('sc_access_token') || null;
 
       async function apiFetch(path, opts = {}) {
