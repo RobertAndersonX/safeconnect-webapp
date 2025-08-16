@@ -1,4 +1,4 @@
-const CACHE = 'sc-cache-v2'; // Инкрементировано с v1 на v2
+const CACHE = 'sc-cache-v3'; // Инкрементировано с v1 на v2
 const ASSETS = [
   './',            // index.html из текущей директории
   './index.html',
@@ -40,3 +40,4 @@ self.addEventListener('fetch', (e) => {
     caches.match(e.request).then(r => r || fetch(e.request))
   );
 });
+
