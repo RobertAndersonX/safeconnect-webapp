@@ -24,7 +24,13 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // network-first для будущего фіда (пример — JSON/alerts)
+  // Не кэшировать наш API на Workers
+  if (url.hostname.endsWith('.workers.dev')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
+
+  // network-first для будущего фида (пример — JSON/alerts)
   if (url.pathname.includes('/api/alerts')) {
     e.respondWith(
       fetch(e.request).catch(() => caches.match(e.request))
