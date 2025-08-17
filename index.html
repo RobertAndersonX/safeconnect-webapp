@@ -131,6 +131,8 @@
     <div class="hdr-right">
       <div class="pill weather" id="weatherBox">🌡️ 23° • ⛅︎ <span class="muted" id="weatherCity">Kyiv</span></div>
       <div class="pill" id="timeNow">--:--:--</div>
+      <div class="pill" id="miniDiag" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">diag: —</div>
+      <button class="btn mini" id="btnMiniAuth" title="Retry Telegram auth">Auth</button>
     </div>
   </header>
 
@@ -858,6 +860,8 @@
         try { await syncFromServer(); } catch(e){ console.warn('initial sync failed', e); }
       }
 
+      await renderDiag({ note: accessToken ? 'token from LS' : 'no token' });
+
 
       // применяем язык из state (приоритет state над localStorage)
       localStorage.setItem('sc_lang', state.lang);
@@ -940,7 +944,8 @@
         themeSel.addEventListener('change', async () => { await applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
 
       // ← ВСТАВЬ ЗДЕСЬ 
-      initTelegram(); 
+      initTelegram();
+      await renderDiag({ note: 'after initTelegram' }); 
       
       // === Telegram auth (robust) ===
       async function tryTelegramAuth() {
@@ -1012,16 +1017,29 @@
         const inTg = !!tg;
         const hasInitStr = inTg && typeof tg.initData === 'string' && tg.initData.length > 0;
         const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object';
-        let me = await whoAmI();
+        let me = null;
+        try { me = await whoAmI(); } catch {}
+
         const lines = [
-          `TG: ${inTg ? 'yes' : 'no'} | init_data: ${hasInitStr?'str':'—'} | init_obj: ${hasInitObj?'obj':'—'}`,
-          `API: ${API_BASE}`,
-          `Token: ${accessToken ? 'set ' + short(accessToken, 18) : '—'}`,
-          me && !me.error ? `Me: id=${me.id||'—'} pro=${me.pro?.status||'none'}` : `Me: —${me&&me.error?(' ('+me.error+')'):''}`,
-          extra.note ? `Note: ${extra.note}` : ''
+          `TG:${inTg ? 'yes' : 'no'}`,
+          `init:${hasInitStr?'str':''}${hasInitObj? (hasInitStr?'+obj':'obj') : (hasInitStr?'':'—')}`,
+          `API:${API_BASE}`,
+          `Tok:${accessToken ? 'set' : '—'}`,
+          me && !me.error ? `me:${me.id}` : '',
+          extra.note ? `note:${extra.note}` : ''
         ].filter(Boolean);
+
         if (diagBox) diagBox.textContent = lines.join(' | ');
+
+        const md = document.getElementById('miniDiag');
+        if (md) md.textContent = 'diag: ' + lines.join(' • ');
       }
+
+      const btnMiniAuth = document.getElementById('btnMiniAuth');
+      if (btnMiniAuth) btnMiniAuth.onclick = async () => {
+        await renderDiag({ note: 'mini-auth click' });
+        await tryTelegramAuth();
+      };
 
       // Кнопки “Auth test” и “Clear token”
       const btnAuthTest = document.getElementById('btnAuthTest');
@@ -1144,10 +1162,12 @@
 
       async function deleteCircle(id) {
         if (!apiReady()) return;
-        // Мини-проверка UUID (большинство БД у нас именно такие id)
-        const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id));
-        if (!uuidLike) { console.warn('skip delete: local/offline id', id); return; }
-        try { await apiFetch('/authed/circles/' + id, { method: 'DELETE' }); } catch (e) { console.warn(e); }
+        try {
+          await apiFetch('/authed/circles/' + encodeURIComponent(id), { method: 'DELETE' });
+        } catch (e) {
+          console.warn('deleteCircle fail', e);
+          await renderDiag({ note: 'delete error' });
+        }
       }
 
       /********************
