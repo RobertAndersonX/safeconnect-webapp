@@ -255,6 +255,11 @@
           <button class="btn" id="btnDevLogin">Dev login</button>
           <div style="height:10px"></div>
           <div class="note">API: <span id="apiBaseShow">—</span> <button class="btn mini" id="setApiBaseBtn">URL</button></div>
+          <div class="note" id="diagBox" style="margin-top:8px;line-height:1.35"></div>
+          <div class="row" style="gap:8px;margin-top:6px">
+            <button class="btn mini" id="btnAuthTest">Auth test</button>
+            <button class="btn mini" id="btnClearToken">Clear token</button>
+          </div>
         </div>
       </section>
 
@@ -349,9 +354,25 @@
         if (!API_BASE) throw new Error('API_BASE not set');
         const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
         const res = await fetch(API_BASE + path, { ...opts, headers, mode: 'cors' });
-        if (!res.ok) throw new Error(`API ${path} ${res.status}`);
-        return res.json();
+
+        // Если истёк/бит токен — почистим и попробуем перелогиниться через Telegram
+        if (res.status === 401) {
+          localStorage.removeItem('sc_access_token');
+          accessToken = null;
+          await renderDiag({ note: `401 on ${path}` });
+          // если мы в Telegram — пробуем авторизацию
+          try { await tryTelegramAuth(); } catch {}
+          throw new Error(`API ${path} 401`);
+        }
+
+        if (!res.ok) {
+          throw new Error(`API ${path} ${res.status}`);
+        }
+        const json = await res.json();
+        await renderDiag(); // обновим диагноз по факту удачного запроса
+        return json;
       }
 
       // 5) Смена базы через UI (кнопка "URL")
@@ -513,13 +534,14 @@
        *  STATE (default) + load/save
        ********************/
       const DEFAULT_STATE = {
-          lang: 'uk',
-          theme: 'dark',
-          circles: [{ id: 1, nameKey: 'circle.family', name: 'Family', members: 2 }],
-          docs: [],
-          ice: { allergies: '', blood: '', medsCrit: [], medsSec: [] },
-          iceLocked: false          // <-- признак “ICE доступен в памяти”
-        }; // B1: Expanded DEFAULT_STATE
+        lang: 'uk',
+        theme: 'dark',
+        circles: [],               // ← было с "Family", теперь пусто
+        docs: [],
+        ice: { allergies: '', blood: '', medsCrit: [], medsSec: [] },
+        iceLocked: false
+      };
+
 
         let state = { ...DEFAULT_STATE };
 
@@ -831,6 +853,12 @@
       // загрузка состояния и первичный рендер
       await loadState();
 
+      // Если токен уже есть (раньше логинились) — сразу подтянуть данные
+      if (accessToken) {
+        try { await syncFromServer(); } catch(e){ console.warn('initial sync failed', e); }
+      }
+
+
       // применяем язык из state (приоритет state над localStorage)
       localStorage.setItem('sc_lang', state.lang);
       langSel.value = state.lang;
@@ -911,9 +939,9 @@
         themeSel.value = savedTheme;
         themeSel.addEventListener('change', async () => { await applyTheme(themeSel.value); if(tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged) try{ tg.HapticFeedback.selectionChanged(); }catch(e){} });
 
-      // ← ВСТАВЬ ЗДЕСЬ
-      initTelegram();
-
+      // ← ВСТАВЬ ЗДЕСЬ 
+      initTelegram(); 
+      
       // === Telegram auth (robust) ===
       async function tryTelegramAuth() {
         if (!tg || accessToken) return;
@@ -934,17 +962,21 @@
             const { access } = await res.json();
             accessToken = access;
             localStorage.setItem('sc_access_token', accessToken);
+            await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
           } else {
-            console.warn('tg auth fail', await res.json().catch(()=>({})));
+            const err = await res.json().catch(()=>({}));
+            console.warn('tg auth fail', err);
+            await renderDiag({ note: 'tg auth fail' });
           }
         } catch (e) {
           console.warn('tg auth error', e);
+          await renderDiag({ note: 'tg auth error' });
         }
       }
 
-      initTelegram();
       await tryTelegramAuth();
+
 
       // прячем Dev login, если открыто внутри Telegram
       const devBtn = document.getElementById('btnDevLogin');
@@ -958,6 +990,54 @@
         const u = prompt('API base URL[](https://…):', API_BASE || 'https://safeconnect-api-dev.spacewenderer1.workers.dev');
         if (u != null) setApiBase(u.trim());
       };
+      
+      // === Diagnostics ===
+      const diagBox = document.getElementById('diagBox');
+
+      async function whoAmI() {
+        if (!accessToken) return null;
+        try {
+          return await apiFetch('/authed/me');
+        } catch (e) {
+          return { error: String(e) };
+        }
+      }
+
+      function short(str, n=14) {
+        if (!str) return '';
+        return str.length > n ? (str.slice(0,n) + '…') : str;
+      }
+
+      async function renderDiag(extra={}) {
+        const inTg = !!tg;
+        const hasInitStr = inTg && typeof tg.initData === 'string' && tg.initData.length > 0;
+        const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object';
+        let me = await whoAmI();
+        const lines = [
+          `TG: ${inTg ? 'yes' : 'no'} | init_data: ${hasInitStr?'str':'—'} | init_obj: ${hasInitObj?'obj':'—'}`,
+          `API: ${API_BASE}`,
+          `Token: ${accessToken ? 'set ' + short(accessToken, 18) : '—'}`,
+          me && !me.error ? `Me: id=${me.id||'—'} pro=${me.pro?.status||'none'}` : `Me: —${me&&me.error?(' ('+me.error+')'):''}`,
+          extra.note ? `Note: ${extra.note}` : ''
+        ].filter(Boolean);
+        if (diagBox) diagBox.textContent = lines.join(' | ');
+      }
+
+      // Кнопки “Auth test” и “Clear token”
+      const btnAuthTest = document.getElementById('btnAuthTest');
+      if (btnAuthTest) btnAuthTest.onclick = async () => {
+        await renderDiag({ note: 'auth test clicked' });
+      };
+
+      const btnClearToken = document.getElementById('btnClearToken');
+      if (btnClearToken) btnClearToken.onclick = async () => {
+        accessToken = null;
+        localStorage.removeItem('sc_access_token');
+        await renderDiag({ note: 'token cleared' });
+      };
+
+      // Первичный вывод
+      renderDiag();
 
       // [E5] dev login → запросить у API access токен
       if (devBtn) devBtn.onclick = async () => {
@@ -1045,8 +1125,13 @@
           circles = srvCircles.map(c => ({ id: c.id, name: c.name, members: 1 }));
           await saveState({ circles });
           renderCircles();
-        } catch (e) { console.warn('syncFromServer fail', e); }
+          await renderDiag({ note: 'synced' });
+        } catch (e) {
+          console.warn('syncFromServer fail', e);
+          await renderDiag({ note: 'sync error' });
+        }
       }
+
 
       async function createCircle(name) {
         if (apiReady()) {
@@ -1058,9 +1143,11 @@
       }
 
       async function deleteCircle(id) {
-        if (apiReady()) {
-          try { await apiFetch('/authed/circles/' + id, { method: 'DELETE' }); } catch (e) { console.warn(e); }
-        }
+        if (!apiReady()) return;
+        // Мини-проверка UUID (большинство БД у нас именно такие id)
+        const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id));
+        if (!uuidLike) { console.warn('skip delete: local/offline id', id); return; }
+        try { await apiFetch('/authed/circles/' + id, { method: 'DELETE' }); } catch (e) { console.warn(e); }
       }
 
       /********************
