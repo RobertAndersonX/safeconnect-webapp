@@ -10,7 +10,7 @@
       default-src 'self';
       connect-src 'self' https://*.workers.dev data: blob:;
       img-src 'self' data: blob:;
-      script-src 'self' https://telegram.org 'unsafe-inline';
+      script-src 'self' https://telegram.org https://*.telegram.org https://*.t.me 'unsafe-inline';
       style-src 'self' 'unsafe-inline';
       font-src 'self' data:;
       base-uri 'self';
@@ -1367,11 +1367,23 @@
 
   <!-- PWA: register Service Worker -->
   <script>
-    // Отключаем SW, если есть ?no-sw=1
-    if ('serviceWorker' in navigator && !/[?&]no-sw=1\b/.test(location.search)) {
-      navigator.serviceWorker.register('sw.js');
-    }
+    (async () => {
+      const noSW = /[?&]no-sw=1\b/.test(location.search);
+      if ('serviceWorker' in navigator) {
+        if (noSW) {
+          // Полностью отключаем: снимаем всех контролёров + не регистрируем заново
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const r of regs) await r.unregister();
+            // Сбросим контролёра на текущей вкладке
+            if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({type:'FORCE_UNREGISTER'});
+          } catch {}
+        } else {
+          // Обычная регистрация (если без флага)
+          navigator.serviceWorker.register('sw.js');
+        }
+      }
+    })();
   </script>
 </body>
 </html>
-
