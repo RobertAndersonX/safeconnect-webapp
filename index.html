@@ -1367,9 +1367,11 @@
 
   <!-- PWA: register Service Worker -->
   <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js')
+    // Отключаем SW, если есть ?no-sw=1
+    if ('serviceWorker' in navigator && !/[?&]no-sw=1\b/.test(location.search)) {
+      navigator.serviceWorker.register('sw.js');
     }
   </script>
 </body>
 </html>
+
