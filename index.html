@@ -57,8 +57,9 @@
     .name{font-size:15px;font-weight:700}
     .sub{font-size:12px;color:var(--muted)}
     .hdr-right{display:flex;align-items:center;gap:8px;min-width:0}
-    #miniDiag{max-width:36vw} /* было 220px — на узких экранах может не влезать */
-    header{flex-wrap:wrap}
+    #miniDiag{ max-width:32vw }
+    /* не даём хедеру переноситься: иначе он перекроет контент при фиксированной высоте */
+    header{flex-wrap:nowrap}
     .pill{padding:6px 10px;border-radius:10px;background:var(--glass);font-size:12px;border:1px solid var(--line)}
     .weather{display:flex;align-items:center;gap:6px}
     /* Viewport */
@@ -1022,7 +1023,6 @@
       };
       
       // === Diagnostics ===
-      const diagBox = document.getElementById('diagBox');
 
       async function whoAmI() {
         if (!accessToken) return null;
@@ -1038,8 +1038,11 @@
         return str.length > n ? (str.slice(0,n) + '…') : str;
       }
 
-      async function renderDiag(extra={}) {
-        const inTg = !!tg;
+      async function renderDiag(extra = {}) {
+        const md  = document.getElementById('miniDiag');
+        const box = document.getElementById('diagBox');
+
+        const inTg       = !!tg;
         const hasInitStr = inTg && typeof tg.initData === 'string' && tg.initData.length > 0;
         const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object';
         let me = null;
@@ -1047,18 +1050,17 @@
 
         const lines = [
           `TG:${inTg ? 'yes' : 'no'}`,
-          `init:${hasInitStr?'str':''}${hasInitObj? (hasInitStr?'+obj':'obj') : (hasInitStr?'':'—')}`,
+          `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr ? '+obj' : 'obj') : (hasInitStr ? '' : '—')}`,
           `API:${API_BASE}`,
           `Tok:${accessToken ? 'set' : '—'}`,
           me && !me.error ? `me:${me.id}` : '',
           extra.note ? `note:${extra.note}` : ''
         ].filter(Boolean);
 
-        if (diagBox) diagBox.textContent = lines.join(' | ');
-
-        const md = document.getElementById('miniDiag');
-        if (md) md.textContent = 'diag: ' + lines.join(' • ');
+        if (box) box.textContent = lines.join(' | ');
+        if (md)  md.textContent  = 'diag: ' + lines.join(' • ');
       }
+
 
       const btnMiniAuth = document.getElementById('btnMiniAuth');
       if (btnMiniAuth) btnMiniAuth.onclick = async () => {
