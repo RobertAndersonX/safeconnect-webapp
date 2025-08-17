@@ -10,11 +10,11 @@
       default-src 'self';
       connect-src 'self' https://*.workers.dev data: blob:;
       img-src 'self' data: blob:;
-      script-src 'self' 'unsafe-inline';
+      script-src 'self' https://telegram.org 'unsafe-inline';
       style-src 'self' 'unsafe-inline';
       font-src 'self' data:;
       base-uri 'self';
-      frame-ancestors 'self';
+      frame-ancestors 'self' https://web.telegram.org https://*.telegram.org https://*.t.me;
     ">
   <style>
     :root{
@@ -54,7 +54,9 @@
     .hdr-meta{display:flex;flex-direction:column}
     .name{font-size:15px;font-weight:700}
     .sub{font-size:12px;color:var(--muted)}
-    .hdr-right{display:flex;align-items:center;gap:8px}
+    .hdr-right{display:flex;align-items:center;gap:8px;min-width:0}
+    #miniDiag{max-width:36vw} /* было 220px — на узких экранах может не влезать */
+    header{flex-wrap:wrap}
     .pill{padding:6px 10px;border-radius:10px;background:var(--glass);font-size:12px;border:1px solid var(--line)}
     .weather{display:flex;align-items:center;gap:6px}
     /* Viewport */
@@ -333,6 +335,7 @@
     </div>
     </div>
 
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 
   <script>
     // Ensure DOM is fully parsed before any element access / function calls
