@@ -16,7 +16,7 @@
       base-uri 'self';
       frame-ancestors 'self' https://web.telegram.org https://*.telegram.org https://*.t.me;
     ">
-  <style>
+<style>
     :root{
       --bg:#0b0f14; --surface:#10161d; --glass:rgba(255,255,255,.04); --line:rgba(255,255,255,.08);
       --text:#e7eef6; --muted:#9aa4b2; --accent:#5eead4; --accent-2:#7aa2ff; --danger:#ff6b6b;
@@ -48,6 +48,8 @@
     /* Header */
     header{height:var(--header);display:flex;align-items:center;justify-content:space-between;padding:8px 12px;position:sticky;top:0;z-index:2;background:linear-gradient(180deg,rgba(0,0,0,.06),rgba(0,0,0,.02));backdrop-filter:saturate(1.2) blur(4px);border-bottom:1px solid var(--line)}
     [data-theme="light"] header{background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.5))}
+    /* Header buttons fix */
+    header .btn { position: relative; z-index: 3; }
     .hdr-left{display:flex;gap:10px;align-items:center}
     .avatar{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#223,#056);display:grid;place-items:center;font-weight:700;color:#fff}
     [data-theme="light"] .avatar{background:linear-gradient(135deg,#eaefff,#cfe1ff);color:#234}
@@ -96,6 +98,7 @@
     .map{height:220px;border-radius:12px;border:1px solid var(--line);background:repeating-linear-gradient(45deg, #0f1720, #0f1720 10px, #0c141c 10px, #0c141c 20px);display:grid;place-items:center;color:var(--muted)}
     [data-theme="midnight"] .map{background:repeating-linear-gradient(45deg,#0a1220,#0a1220 10px,#0c1a30 10px,#0c1a30 20px)}
     [data-theme="light"] .map{background:repeating-linear-gradient(45deg, #eef2ff, #eef2ff 10px, #e7ecfe 10px, #e7ecfe 20px)}
+    .map { pointer-events: none; } /* чтобы не накрывала кликабельные элементы */
     /* Toggle */
     .toggle{display:flex;align-items:center;gap:10px}
     .select{height:36px;border-radius:10px;border:1px solid var(--line);background:var(--glass);color:var(--text);padding:0 8px}
@@ -114,7 +117,7 @@
     /* PATCH 3: явный цвет текста/плейсхолдера для input/textarea */
     input.pill, textarea.pill{ color:var(--text); background:var(--glass) }
     input.pill::placeholder, textarea.pill::placeholder{ color:var(--muted) }
-    /* PATCH 4: подгон правого края “Додати” под правый край кнопки “Відкрити” в плитках */
+    /* PATCH 4: подгон правого края "Додати" под правый край кнопки "Відкрити" в плитках */
     #btnAddCircle{ margin-right:10px }
     /* PATCH 5: одинаковая ширина селектов в настройках, уменьшена дополнительно */
     .select.wide{ width:120px }
@@ -122,6 +125,24 @@
   </style>
 </head>
 <body>
+
+  <script>
+  // ultra-early diag — ловим любые ранние ошибки и показываем в diag
+  (function () {
+    function put(msg) {
+      try {
+        var bx = document.getElementById('diagBox');
+        var md = document.getElementById('miniDiag');
+        if (bx) bx.textContent = String(msg);
+        if (md) md.textContent = 'diag: ' + String(msg);
+      } catch (_) {}
+    }
+    window.__sc_putdiag = put;
+    window.addEventListener('error',  e => put('JS error: ' + (e && e.message ? e.message : e)));
+    window.addEventListener('unhandledrejection', e => put('Promise err: ' + (e && e.reason ? (e.reason.message || e.reason) : e)));
+  })();
+</script>
+
   <header>
     <div class="hdr-left">
       <div class="avatar" id="userAvatar">SC</div>
@@ -340,6 +361,7 @@
   <script>
     // Ensure DOM is fully parsed before any element access / function calls
     document.addEventListener('DOMContentLoaded', async () => {
+      try {
 
       // [E5] ==== API client (REPLACEMENT) ====
       // 1) Берём базу из localStorage, иначе — dev-воркер по умолчанию
@@ -1362,26 +1384,38 @@
       const tmp = await DB.get('state');
       console.assert(tmp && tmp.lang==='en', 'state saved lang=en');
       await saveState({ lang: prevLang });
+      } catch (err) {
+        (window.__sc_putdiag || console.log)('boot fail: ' + (err && err.message ? err.message : err));
+      }
     });
   </script>
 
   <!-- PWA: register Service Worker -->
   <script>
-    (async () => {
-      const noSW = /[?&]no-sw=1\b/.test(location.search);
-      if ('serviceWorker' in navigator) {
-        if (noSW) {
-          // Полностью отключаем: снимаем всех контролёров + не регистрируем заново
-          try {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            for (const r of regs) await r.unregister();
-            // Сбросим контролёра на текущей вкладке
-            if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({type:'FORCE_UNREGISTER'});
-          } catch {}
-        } else {
-          // Обычная регистрация (если без флага)
-          navigator.serviceWorker.register('sw.js');
+    // Сервис-воркер отключаем, если есть ?no-sw=1 (или сбрасываем кэш по ?clear-sw=1)
+    (async function () {
+      if (!('serviceWorker' in navigator)) return;
+
+      const qs = location.search;
+      const noSW = /[?&]no-sw=1\b/.test(qs);
+      const clearSW = /[?&]clear-sw=1\b/.test(qs);
+
+      if (noSW || clearSW) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) try { await r.unregister(); } catch {}
+        // подчистим кэши (на случай смены имени)
+        if (clearSW && 'caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
         }
+        console.log('SW disabled/cleared due to query');
+        return;
+      }
+
+      try {
+        await navigator.serviceWorker.register('sw.js', { scope: './' });
+      } catch (e) {
+        console.log('SW reg fail', e);
       }
     })();
   </script>
