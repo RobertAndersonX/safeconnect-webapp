@@ -161,8 +161,10 @@
   })();
 </script>
 
+  <script>
   // ===== Verbose log =====
   const LOG = [];
+  window.LOG = LOG;               // <-- важно: доступно в copy
   function addLog(msg){
     const ts = new Date().toISOString();
     const line = `[${ts}] ${String(msg)}`;
@@ -172,11 +174,10 @@
       pane.textContent = LOG.join('\n');
       pane.scrollTop = pane.scrollHeight;
     }
-    // дублируем в консоль
     try { console.log(line); } catch {}
   }
   window.__sc_addlog = addLog;
-
+  </script>
 
   <header>
     <div class="hdr-left">
@@ -1116,17 +1117,15 @@
           extra.note ? `note:${extra.note}` : ''
         ].filter(Boolean).join(' | ');
 
-        // строка статуса — в старый diagBox + мини-строчку в хедере
-        if (typeof diagBox !== 'undefined' && diagBox) diagBox.textContent = status;
+        // строка статуса — в блок настроек + мини-строчку в хедере
+        const box = document.getElementById('diagBox');
+        if (box) box.textContent = status;
         const md = document.getElementById('miniDiag');
         if (md) md.textContent = 'diag: ' + status;
 
         // а «note» — ещё и в развёрнутый лог
         if (extra.note) addLog(extra.note);
       }
-
-
-
 
       const btnMiniAuth = document.getElementById('btnMiniAuth');
       if (btnMiniAuth) btnMiniAuth.onclick = async () => {
