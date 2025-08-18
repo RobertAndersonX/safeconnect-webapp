@@ -973,31 +973,26 @@
       initTelegram();
       await renderDiag({ note: 'after initTelegram' }); 
       
-      // === Telegram auth (robust) ===
+      // === Telegram auth (prefer init string) ===
       async function tryTelegramAuth() {
         if (!tg || accessToken) return;
 
+        // берем только строку; если её нет — выходим
         const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
-        const hasInitObj = tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object'
-                        && Object.keys(tg.initDataUnsafe).length > 0;
+        if (!hasInitStr) return;
 
-        // если НЕ в Telegram (нет валидных init-данных) — выходим
-        if (!hasInitStr && !hasInitObj) return;
-
-        const init_str = hasInitStr ? tg.initData : '';
-        const init_obj = hasInitObj ? tg.initDataUnsafe : null;
+        const init_str = tg.initData;
 
         try {
           const res = await fetch(API_BASE + '/verify-telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ init_data: init_str, init_obj })
+            body: JSON.stringify({ init_data: init_str })   // <-- БЕЗ init_obj
           });
           const body = await res.json().catch(() => ({}));
 
-          if (res.ok) {
-            const { access } = body;
-            accessToken = access;
+          if (res.ok && body && body.access) {
+            accessToken = body.access;
             localStorage.setItem('sc_access_token', accessToken);
             await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
@@ -1426,6 +1421,5 @@
       }
     })();
   </script>
-
 </body>
 </html>
