@@ -123,6 +123,23 @@
     /* PATCH 5: одинаковая ширина селектов в настройках, уменьшена дополнительно */
     .select.wide{ width:120px }
     @media (max-width:420px){ .select.wide{ width:104px } }
+    /* Diagnostics pane */
+    .diag-pane{
+      white-space:pre-wrap;
+      background:var(--glass);
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:8px;
+      max-height:260px;
+      overflow:auto;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+    }
+    /* позволим diagBox быть многострочным, не обрезать текст */
+    #diagBox{
+      white-space:pre-wrap !important;
+      word-break:break-word;
+    }
   </style>
 </head>
 <body>
@@ -143,6 +160,23 @@
     window.addEventListener('unhandledrejection', e => put('Promise err: ' + (e && e.reason ? (e.reason.message || e.reason) : e)));
   })();
 </script>
+
+  // ===== Verbose log =====
+  const LOG = [];
+  function addLog(msg){
+    const ts = new Date().toISOString();
+    const line = `[${ts}] ${String(msg)}`;
+    LOG.push(line);
+    const pane = document.getElementById('diagPane');
+    if (pane){
+      pane.textContent = LOG.join('\n');
+      pane.scrollTop = pane.scrollHeight;
+    }
+    // дублируем в консоль
+    try { console.log(line); } catch {}
+  }
+  window.__sc_addlog = addLog;
+
 
   <header>
     <div class="hdr-left">
@@ -283,6 +317,11 @@
           <div class="note">API: <span id="apiBaseShow">—</span> <button class="btn mini" id="setApiBaseBtn">URL</button></div>
           <div class="note" id="diagBox" style="margin-top:8px;line-height:1.35"></div>
           <div class="row" style="gap:8px;margin-top:6px">
+            <button class="btn mini" id="btnDiagCopy">Copy</button>
+            <button class="btn mini" id="btnDiagClear">Clear</button>
+          </div>
+          <pre id="diagPane" class="diag-pane"></pre>
+          <div class="row" style="gap:8px;margin-top:6px">
             <button class="btn mini" id="btnAuthTest">Auth test</button>
             <button class="btn mini" id="btnClearToken">Clear token</button>
           </div>
@@ -377,31 +416,43 @@
       // 3) Токен из localStorage
       let accessToken = localStorage.getItem('sc_access_token') || null;
 
-      // 4) Клиент с CORS
+      // 4) Клиент с CORS + verbose лог
       async function apiFetch(path, opts = {}) {
         if (!API_BASE) throw new Error('API_BASE not set');
-        const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+        const headers = Object.assign({ 'Content-Type': 'application/json' }, (opts.headers || {}));
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-        const res = await fetch(API_BASE + path, { ...opts, headers, mode: 'cors' });
+        let res;
+        try {
+          res = await fetch(API_BASE + path, { ...opts, headers, mode: 'cors' });
+        } catch (e) {
+          if (typeof window.__sc_addlog === 'function') window.__sc_addlog(`apiFetch ${path}: network error ${String(e)}`);
+          throw e;
+        }
 
-        // Если истёк/бит токен — почистим и попробуем перелогиниться через Telegram
+        // логируем код ответа
+        if (typeof window.__sc_addlog === 'function') window.__sc_addlog(`apiFetch ${path}: HTTP ${res.status}`);
+
+        // 401 — чистим токен, пробуем TG-авторизацию
         if (res.status === 401) {
           localStorage.removeItem('sc_access_token');
           accessToken = null;
           await renderDiag({ note: `401 on ${path}` });
-          // если мы в Telegram — пробуем авторизацию
           try { await tryTelegramAuth(); } catch {}
           throw new Error(`API ${path} 401`);
         }
 
         if (!res.ok) {
+          let t=''; try{ t = await res.clone().text(); }catch{}
+          if (typeof window.__sc_addlog === 'function') window.__sc_addlog(`apiFetch ${path}: !ok body ${String(t).slice(0,400)}`);
           throw new Error(`API ${path} ${res.status}`);
         }
+
         const json = await res.json();
-        await renderDiag(); // обновим диагноз по факту удачного запроса
+        await renderDiag(); // обновим статус по факту удачного запроса
         return json;
       }
+
 
       // 5) Смена базы через UI (кнопка "URL")
       function setApiBase(u) {
@@ -974,13 +1025,15 @@
       await renderDiag({ note: 'after initTelegram' }); 
       
       // === Telegram auth (prefer init string) ===
+      // === Telegram auth (verbose) ===
       async function tryTelegramAuth() {
-        if (!tg || accessToken) return;
+        if (!tg || accessToken) { addLog('tryTelegramAuth: skipped (no tg or token already set)'); return; }
 
         const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
-        if (!hasInitStr) return;
+        if (!hasInitStr) { addLog('tryTelegramAuth: no initData string — not inside Telegram'); return; }
 
         const init_str = tg.initData;
+        addLog('tryTelegramAuth: POST /verify-telegram ...');
 
         try {
           const res = await fetch(API_BASE + '/verify-telegram', {
@@ -989,12 +1042,13 @@
             body: JSON.stringify({ init_data: init_str })
           });
 
-          // попытаемся вытащить текст в любом случае
           let text = '';
           try { text = await res.clone().text(); } catch {}
-
           let body = {};
           try { body = JSON.parse(text); } catch {}
+
+          addLog(`tryTelegramAuth: response ${res.status} ${res.statusText || ''}`);
+          if (text) addLog(`tryTelegramAuth: body ${String(text).slice(0, 400)}`);
 
           if (res.ok && body && body.access) {
             accessToken = body.access;
@@ -1002,14 +1056,13 @@
             await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
           } else {
-            const msg = `tg fail: ${res.status} ${body.error||''} ${body.detail||''} ${text ? ('| ' + String(text).slice(0,140)) : ''}`;
-            await renderDiag({ note: msg });
-            console.warn(msg);
+            await renderDiag({ note: `tg fail: ${res.status} ${body.error||''} ${body.detail||''}` });
           }
         } catch (e) {
           await renderDiag({ note: `tg auth error: ${String(e)}` });
         }
       }
+
 
 
 
@@ -1048,26 +1101,30 @@
       async function renderDiag(extra = {}) {
         const inTg = !!tg;
         const hasInitStr = inTg && typeof tg.initData === 'string' && tg.initData.length > 0;
-        // считаем «есть init_obj» ТОЛЬКО если он непустой
         const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object'
                         && Object.keys(tg.initDataUnsafe).length > 0;
 
         let me = null;
         try { me = await whoAmI(); } catch {}
 
-        const lines = [
+        const status = [
           `TG:${inTg ? 'yes' : 'no'}`,
           `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr?'+obj':'obj') : (hasInitStr?'':'—')}`,
           `API:${API_BASE}`,
           `Tok:${accessToken ? 'set' : '—'}`,
           me && !me.error ? `me:${me.id}` : '',
           extra.note ? `note:${extra.note}` : ''
-        ].filter(Boolean);
+        ].filter(Boolean).join(' | ');
 
-        if (diagBox) diagBox.textContent = lines.join(' | ');
+        // строка статуса — в старый diagBox + мини-строчку в хедере
+        if (typeof diagBox !== 'undefined' && diagBox) diagBox.textContent = status;
         const md = document.getElementById('miniDiag');
-        if (md) md.textContent = 'diag: ' + lines.join(' • ');
+        if (md) md.textContent = 'diag: ' + status;
+
+        // а «note» — ещё и в развёрнутый лог
+        if (extra.note) addLog(extra.note);
       }
+
 
 
 
@@ -1088,6 +1145,18 @@
         accessToken = null;
         localStorage.removeItem('sc_access_token');
         await renderDiag({ note: 'token cleared' });
+      };
+
+      // Diagnostics: Copy / Clear
+      const btnDiagCopy = document.getElementById('btnDiagCopy');
+      if (btnDiagCopy) btnDiagCopy.onclick = async () => {
+        try { await navigator.clipboard.writeText((window.LOG||[]).join('\n')); alert('Diagnostics copied'); }
+        catch(e){ alert('Copy failed: ' + String(e)); }
+      };
+      const btnDiagClear = document.getElementById('btnDiagClear');
+      if (btnDiagClear) btnDiagClear.onclick = () => {
+        if (window.LOG) window.LOG.length = 0;
+        if (typeof window.__sc_addlog === 'function') window.__sc_addlog('--- log cleared ---');
       };
 
       // Первичный вывод
