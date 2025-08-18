@@ -977,11 +977,15 @@
       async function tryTelegramAuth() {
         if (!tg || accessToken) return;
 
-        const init_str = (typeof tg.initData === 'string' ? tg.initData : '') || '';
-        const init_obj = tg.initDataUnsafe || null;
+        const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
+        const hasInitObj = tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object'
+                        && Object.keys(tg.initDataUnsafe).length > 0;
 
-        // если не в Telegram — выходим
-        if (!init_str && !init_obj) return;
+        // если НЕ в Telegram (нет валидных init-данных) — выходим
+        if (!hasInitStr && !hasInitObj) return;
+
+        const init_str = hasInitStr ? tg.initData : '';
+        const init_obj = hasInitObj ? tg.initDataUnsafe : null;
 
         try {
           const res = await fetch(API_BASE + '/verify-telegram', {
@@ -989,7 +993,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ init_data: init_str, init_obj })
           });
-          const body = await res.json().catch(()=> ({}));
+          const body = await res.json().catch(() => ({}));
 
           if (res.ok) {
             const { access } = body;
@@ -998,11 +1002,10 @@
             await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
           } else {
-            await renderDiag({ note: `tg fail: ${body.error||res.status} ${body.detail||''}` });
+            await renderDiag({ note: `tg fail: ${body.error || res.status} ${body.detail || ''}` });
           }
         } catch (e) {
-          console.warn('tg auth error', e);
-          await renderDiag({ note: 'tg auth error' });
+          await renderDiag({ note: `tg auth error: ${String(e)}` });
         }
       }
 
@@ -1039,27 +1042,29 @@
       }
 
       async function renderDiag(extra = {}) {
-        const md  = document.getElementById('miniDiag');
-        const box = document.getElementById('diagBox');
-
-        const inTg       = !!tg;
+        const inTg = !!tg;
         const hasInitStr = inTg && typeof tg.initData === 'string' && tg.initData.length > 0;
-        const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object';
+        // считаем «есть init_obj» ТОЛЬКО если он непустой
+        const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object'
+                        && Object.keys(tg.initDataUnsafe).length > 0;
+
         let me = null;
         try { me = await whoAmI(); } catch {}
 
         const lines = [
           `TG:${inTg ? 'yes' : 'no'}`,
-          `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr ? '+obj' : 'obj') : (hasInitStr ? '' : '—')}`,
+          `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr?'+obj':'obj') : (hasInitStr?'':'—')}`,
           `API:${API_BASE}`,
           `Tok:${accessToken ? 'set' : '—'}`,
           me && !me.error ? `me:${me.id}` : '',
           extra.note ? `note:${extra.note}` : ''
         ].filter(Boolean);
 
-        if (box) box.textContent = lines.join(' | ');
-        if (md)  md.textContent  = 'diag: ' + lines.join(' • ');
+        if (diagBox) diagBox.textContent = lines.join(' | ');
+        const md = document.getElementById('miniDiag');
+        if (md) md.textContent = 'diag: ' + lines.join(' • ');
       }
+
 
 
       const btnMiniAuth = document.getElementById('btnMiniAuth');
@@ -1421,5 +1426,6 @@
       }
     })();
   </script>
+
 </body>
 </html>
