@@ -977,7 +977,6 @@
       async function tryTelegramAuth() {
         if (!tg || accessToken) return;
 
-        // берем только строку; если её нет — выходим
         const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
         if (!hasInitStr) return;
 
@@ -987,9 +986,15 @@
           const res = await fetch(API_BASE + '/verify-telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ init_data: init_str })   // <-- БЕЗ init_obj
+            body: JSON.stringify({ init_data: init_str })
           });
-          const body = await res.json().catch(() => ({}));
+
+          // попытаемся вытащить текст в любом случае
+          let text = '';
+          try { text = await res.clone().text(); } catch {}
+
+          let body = {};
+          try { body = JSON.parse(text); } catch {}
 
           if (res.ok && body && body.access) {
             accessToken = body.access;
@@ -997,12 +1002,16 @@
             await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
           } else {
-            await renderDiag({ note: `tg fail: ${body.error || res.status} ${body.detail || ''}` });
+            const msg = `tg fail: ${res.status} ${body.error||''} ${body.detail||''} ${text ? ('| ' + String(text).slice(0,140)) : ''}`;
+            await renderDiag({ note: msg });
+            console.warn(msg);
           }
         } catch (e) {
           await renderDiag({ note: `tg auth error: ${String(e)}` });
         }
       }
+
+
 
       await tryTelegramAuth();
 
