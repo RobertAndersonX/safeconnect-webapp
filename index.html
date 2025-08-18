@@ -989,16 +989,16 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ init_data: init_str, init_obj })
           });
+          const body = await res.json().catch(()=> ({}));
+
           if (res.ok) {
-            const { access } = await res.json();
+            const { access } = body;
             accessToken = access;
             localStorage.setItem('sc_access_token', accessToken);
             await renderDiag({ note: 'tg auth ok' });
             await syncFromServer();
           } else {
-            const err = await res.json().catch(()=>({}));
-            console.warn('tg auth fail', err);
-            await renderDiag({ note: 'tg auth fail' });
+            await renderDiag({ note: `tg fail: ${body.error||res.status} ${body.detail||''}` });
           }
         } catch (e) {
           console.warn('tg auth error', e);
