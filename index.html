@@ -1040,7 +1040,10 @@
           const res = await fetch(API_BASE + '/verify-telegram', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ init_data: init_str })
+            body: JSON.stringify({
+              init_data: init_str,
+              init_obj: (tg && tg.initDataUnsafe) ? tg.initDataUnsafe : null
+            })
           });
 
           let text = '';
