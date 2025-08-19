@@ -1029,41 +1029,31 @@
 
       async function fetchMeOnce() {
         if (!accessToken) return { error: 'no token' };
-        const r = await fetch(API_BASE + '/authed/me', {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${accessToken}` },
-          mode: 'cors'
-        });
+        const r = await apiFetch('/authed/me');
         if (r.status === 401) return { error: 'unauthorized' };
         if (!r.ok) return { error: 'http', status: r.status };
-        return await r.json();
+        return r;
       }
 
       // Универсальный запуск: пробуем токен => если нет/401, логинимся через Telegram => берём me один раз
       async function loginAndLoad() {
-        // 1) Если уже есть токен — пробуем me
         let me = await fetchMeOnce();
         if (!me || me.error) {
-          // 2) Логинимся через Telegram (получаем access и сохраняем)
-          const ok = await tryTelegramAuth(); // ДОЛЖНО вернуть true/false
+          const ok = await tryTelegramAuth();
           if (!ok) {
             await renderDiag({ note: 'Telegram auth failed' });
-            return; // Показываем ошибку на UI и выходим
+            return;
           }
-          // 3) Снова пробуем me (один раз)
           me = await fetchMeOnce();
         }
 
         if (me && !me.error) {
-          // Тут рендерим пользовательский UI
           addLog('ME:', me);
-          await renderDiag({ note: 'User authenticated' });
+          await renderDiag({ note: 'User authenticated', forceMe: true }); // Запрос me только здесь
           await syncFromServer();
         } else {
           addLog('Не удалось получить /authed/me:', me);
           await renderDiag({ note: 'Auth failed: ' + (me ? me.error : 'unknown') });
-          // Никаких setInterval! Максимум — мягкий одиночный бэкофф (опционально)
-          // setTimeout(loginAndLoad, 5000);
         }
       }
 
@@ -1162,34 +1152,41 @@
         const hasInitObj = inTg && tg.initDataUnsafe && typeof tg.initDataUnsafe === 'object'
                         && Object.keys(tg.initDataUnsafe).length > 0;
 
-        let me = null;
-        try { me = await whoAmI(); } catch {}
+        // Используем кэшированные данные вместо нового запроса
+        let meStatus = '—';
+        if (accessToken) {
+          meStatus = 'set';
+          // Запрос только если явно указано (например, при extra.forceMe)
+          if (extra.forceMe) {
+            try {
+              const me = await whoAmI();
+              meStatus = me && !me.error ? `me:${me.id}` : 'error';
+            } catch {}
+          }
+        }
 
         const status = [
           `TG:${inTg ? 'yes' : 'no'}`,
-          `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr?'+obj':'obj') : (hasInitStr?'':'—')}`,
+          `init:${hasInitStr ? 'str' : ''}${hasInitObj ? (hasInitStr ? '+obj' : 'obj') : (hasInitStr ? '' : '—')}`,
           `API:${API_BASE}`,
-          `Tok:${accessToken ? 'set' : '—'}`,
-          me && !me.error ? `me:${me.id}` : '',
+          `Tok:${accessToken ? meStatus : '—'}`,
           extra.note ? `note:${extra.note}` : ''
         ].filter(Boolean).join(' | ');
 
-        // строка статуса — в блок настроек + мини-строчку в хедере
         const box = document.getElementById('diagBox');
         if (box) box.textContent = status;
         const md = document.getElementById('miniDiag');
         if (md) md.textContent = 'diag: ' + status;
 
-        // а «note» — ещё и в развёрнутый лог
         if (extra.note) addLog(extra.note);
       }
 
       const btnMiniAuth = document.getElementById('btnMiniAuth');
       if (btnMiniAuth) btnMiniAuth.onclick = async () => {
         await renderDiag({ note: 'mini-auth click' });
-        await tryTelegramAuth();
+        await loginAndLoad(); // Переиспользуем логику авторизации
       };
-
+      
       // Кнопки “Auth test” и “Clear token”
       const btnAuthTest = document.getElementById('btnAuthTest');
       if (btnAuthTest) btnAuthTest.onclick = async () => {
@@ -1563,4 +1560,3 @@
   </script>
 </body>
 </html>
-
