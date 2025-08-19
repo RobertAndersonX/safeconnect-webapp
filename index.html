@@ -1034,6 +1034,14 @@
         if (!hasInitStr) { addLog('tryTelegramAuth: no initData string — not inside Telegram'); return; }
 
         const init_str = tg.initData;
+
+      // сразу после: const init_str = tg.initData;
+      if (tg && tg.initDataUnsafe) {
+        addLog('tg qid: ' + (tg.initDataUnsafe.query_id || ''));
+        addLog('tg chat_type: ' + (tg.initDataUnsafe.chat_type || ''));
+        addLog('tg start_param: ' + (tg.initDataUnsafe.start_param || ''));
+      }
+      
         addLog('tryTelegramAuth: POST /verify-telegram ...');
 
         try {
