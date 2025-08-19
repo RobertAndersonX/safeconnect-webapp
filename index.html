@@ -1029,11 +1029,18 @@
       // === Telegram auth (verbose) ===
       async function tryTelegramAuth() {
         if (!tg || accessToken) { addLog('tryTelegramAuth: skipped (no tg or token already set)'); return; }
+        console.log('tg_full_initData: ', tg.initData);
+        console.log('tg_full_initDataUnsafe: ', JSON.stringify(tg.initDataUnsafe, null, 2));
 
         const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
         if (!hasInitStr) { addLog('tryTelegramAuth: no initData string — not inside Telegram'); return; }
 
         const init_str = tg.initData;
+
+        console.log('sent_body: ', JSON.stringify({
+          init_data: init_str,
+          init_obj: (tg && tg.initDataUnsafe) ? tg.initDataUnsafe : null
+        }, null, 2));
 
       // сразу после: const init_str = tg.initData;
       if (tg && tg.initDataUnsafe) {
@@ -1041,7 +1048,7 @@
         addLog('tg chat_type: ' + (tg.initDataUnsafe.chat_type || ''));
         addLog('tg start_param: ' + (tg.initDataUnsafe.start_param || ''));
       }
-      
+
         addLog('tryTelegramAuth: POST /verify-telegram ...');
 
         try {
