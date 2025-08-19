@@ -1029,10 +1029,14 @@
 
       async function fetchMeOnce() {
         if (!accessToken) return { error: 'no token' };
-        const r = await apiFetch('/authed/me');
+        const r = await fetch(API_BASE + '/authed/me', {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+          mode: 'cors'
+        });
         if (r.status === 401) return { error: 'unauthorized' };
         if (!r.ok) return { error: 'http', status: r.status };
-        return r;
+        return await r.json();
       }
 
       // Универсальный запуск: пробуем токен => если нет/401, логинимся через Telegram => берём me один раз
@@ -1559,3 +1563,4 @@
   </script>
 </body>
 </html>
+
