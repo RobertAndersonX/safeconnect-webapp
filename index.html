@@ -1025,15 +1025,52 @@
       initTelegram();
       await renderDiag({ note: 'after initTelegram' }); 
       
-      // === Telegram auth (prefer init string) ===
       // === Telegram auth (verbose) ===
+
+      async function fetchMeOnce() {
+        if (!accessToken) return { error: 'no token' };
+        const r = await apiFetch('/authed/me');
+        if (r.status === 401) return { error: 'unauthorized' };
+        if (!r.ok) return { error: 'http', status: r.status };
+        return r;
+      }
+
+      // Универсальный запуск: пробуем токен => если нет/401, логинимся через Telegram => берём me один раз
+      async function loginAndLoad() {
+        // 1) Если уже есть токен — пробуем me
+        let me = await fetchMeOnce();
+        if (!me || me.error) {
+          // 2) Логинимся через Telegram (получаем access и сохраняем)
+          const ok = await tryTelegramAuth(); // ДОЛЖНО вернуть true/false
+          if (!ok) {
+            await renderDiag({ note: 'Telegram auth failed' });
+            return; // Показываем ошибку на UI и выходим
+          }
+          // 3) Снова пробуем me (один раз)
+          me = await fetchMeOnce();
+        }
+
+        if (me && !me.error) {
+          // Тут рендерим пользовательский UI
+          addLog('ME:', me);
+          await renderDiag({ note: 'User authenticated' });
+          await syncFromServer();
+        } else {
+          addLog('Не удалось получить /authed/me:', me);
+          await renderDiag({ note: 'Auth failed: ' + (me ? me.error : 'unknown') });
+          // Никаких setInterval! Максимум — мягкий одиночный бэкофф (опционально)
+          // setTimeout(loginAndLoad, 5000);
+        }
+      }
+
+      // Переопределяем tryTelegramAuth с возвратом результата
       async function tryTelegramAuth() {
-        if (!tg || accessToken) { addLog('tryTelegramAuth: skipped (no tg or token already set)'); return; }
+        if (!tg || accessToken) { addLog('tryTelegramAuth: skipped (no tg or token already set)'); return false; }
         console.log('tg_full_initData: ', tg.initData);
         console.log('tg_full_initDataUnsafe: ', JSON.stringify(tg.initDataUnsafe, null, 2));
 
         const hasInitStr = typeof tg.initData === 'string' && tg.initData.length > 0;
-        if (!hasInitStr) { addLog('tryTelegramAuth: no initData string — not inside Telegram'); return; }
+        if (!hasInitStr) { addLog('tryTelegramAuth: no initData string — not inside Telegram'); return false; }
 
         const init_str = tg.initData;
 
@@ -1042,12 +1079,11 @@
           init_obj: (tg && tg.initDataUnsafe) ? tg.initDataUnsafe : null
         }, null, 2));
 
-      // сразу после: const init_str = tg.initData;
-      if (tg && tg.initDataUnsafe) {
-        addLog('tg qid: ' + (tg.initDataUnsafe.query_id || ''));
-        addLog('tg chat_type: ' + (tg.initDataUnsafe.chat_type || ''));
-        addLog('tg start_param: ' + (tg.initDataUnsafe.start_param || ''));
-      }
+        if (tg && tg.initDataUnsafe) {
+          addLog('tg qid: ' + (tg.initDataUnsafe.query_id || ''));
+          addLog('tg chat_type: ' + (tg.initDataUnsafe.chat_type || ''));
+          addLog('tg start_param: ' + (tg.initDataUnsafe.start_param || ''));
+        }
 
         addLog('tryTelegramAuth: POST /verify-telegram ...');
 
@@ -1073,19 +1109,18 @@
             accessToken = body.access;
             localStorage.setItem('sc_access_token', accessToken);
             await renderDiag({ note: 'tg auth ok' });
-            await syncFromServer();
+            return true;
           } else {
             await renderDiag({ note: `tg fail: ${res.status} ${body.error||''} ${body.detail||''}` });
+            return false;
           }
         } catch (e) {
           await renderDiag({ note: `tg auth error: ${String(e)}` });
+          return false;
         }
       }
 
-
-
-
-      await tryTelegramAuth();
+// Удаляем эту строку: await tryTelegramAuth();
 
 
       // прячем Dev login, если открыто внутри Telegram
@@ -1192,8 +1227,14 @@
           localStorage.setItem('sc_access_token', accessToken);
           alert('Dev login OK');
           await syncFromServer();
+          await loginAndLoad(); // Перезапуск после dev login
         } catch (e) { console.error(e); alert('Login failed'); }
       };
+
+      // Старт приложения: один вызов loginAndLoad без циклов
+      window.addEventListener('load', () => {
+        loginAndLoad(); // Без setInterval/без бесконечных повторов
+      });
       
       /********************
        *  Circles controls
