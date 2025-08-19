@@ -26,6 +26,7 @@ self.addEventListener('activate', (e) => {
 
 // fetch: уважаем ?no-sw=1 и .workers.dev
 self.addEventListener('fetch', (e) => {
+  console.log('SW fetch: ', e.request.url);
   const url = new URL(e.request.url);
 
   // Полностью обходим SW, если явно просят
@@ -46,3 +47,4 @@ self.addEventListener('fetch', (e) => {
   // Offline-first для остальной статики
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
 });
+
