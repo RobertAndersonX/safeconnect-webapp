@@ -1135,7 +1135,12 @@
       async function whoAmI() {
         if (!accessToken) return null;
         try {
-          return await apiFetch('/authed/me');
+          const r = await fetch(API_BASE + '/authed/me', {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+            mode: 'cors'
+          });
+          if (!r.ok) return { error: 'http', status: r.status };
+          return await r.json();
         } catch (e) {
           return { error: String(e) };
         }
@@ -1560,3 +1565,4 @@
   </script>
 </body>
 </html>
+
