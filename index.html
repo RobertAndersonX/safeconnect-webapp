@@ -439,9 +439,13 @@
           localStorage.removeItem('sc_access_token');
           accessToken = null;
           await renderDiag({ note: `401 on ${path}` });
-          try { await tryTelegramAuth(); } catch {}
+          if (!__authInflight) {
+            __authInflight = true;
+            try { await tryTelegramAuth(); } finally { __authInflight = false; }
+          }
           throw new Error(`API ${path} 401`);
         }
+
 
         if (!res.ok) {
           let t=''; try{ t = await res.clone().text(); }catch{}
@@ -1029,11 +1033,15 @@
 
       async function fetchMeOnce() {
         if (!accessToken) return { error: 'no token' };
-        const r = await apiFetch('/authed/me');
-        if (r.status === 401) return { error: 'unauthorized' };
-        if (!r.ok) return { error: 'http', status: r.status };
-        return r;
+        try {
+          // apiFetch уже бросает на не-200 и возвращает JSON при успехе
+          const me = await apiFetch('/authed/me');
+          return me; // { id, pro: {...} }
+        } catch (e) {
+          return { error: String(e?.message || e) };
+        }
       }
+
 
       // Универсальный запуск: пробуем токен => если нет/401, логинимся через Telegram => берём me один раз
       async function loginAndLoad() {
@@ -1135,12 +1143,7 @@
       async function whoAmI() {
         if (!accessToken) return null;
         try {
-          const r = await fetch(API_BASE + '/authed/me', {
-            headers: { 'Authorization': `Bearer ${accessToken}` },
-            mode: 'cors'
-          });
-          if (!r.ok) return { error: 'http', status: r.status };
-          return await r.json();
+          return await apiFetch('/authed/me');
         } catch (e) {
           return { error: String(e) };
         }
@@ -1565,4 +1568,3 @@
   </script>
 </body>
 </html>
-
