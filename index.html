@@ -140,6 +140,11 @@
       white-space:pre-wrap !important;
       word-break:break-word;
     }
+    /* Гарантия, что кнопки кликабельны, даже если какой-то родитель вдруг ограничил события */
+    .tile .btn,
+    .row .btn,
+    .btn { pointer-events: auto; }
+
   </style>
 </head>
 <body>
@@ -983,13 +988,18 @@
               <b>${c.nameKey ? t(c.nameKey) : c.name}</b>
               <div class="muted">${c.members} ${t('circle.members')}</div>
             </div>
-            <button class="btn equal" data-open="${c.id}">${t('circle.open')}</button>
+            <button type="button" class="btn equal" data-open="${c.id}">${t('circle.open')}</button>
           </div>`).join('');
-
-        circleList.querySelectorAll('[data-open]').forEach(btn=>{
-          btn.addEventListener('click',()=> showCircle(Number(btn.getAttribute('data-open'))));
-        });
       }
+
+      // ЕДИНОЖДЫ (после объявления circleList) — делегирование кликов:
+      circleList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-open]');
+        if (!btn) return;
+        const id = Number(btn.getAttribute('data-open'));
+        if (!Number.isFinite(id)) return;
+        showCircle(id);
+      });
 
 
       /********************
