@@ -879,13 +879,9 @@
        *  DATA (feed, circles, limits)
        ********************/
       const FREE_LIMITS = { docs:3, circles:1 };
-      const feedData = [
-        { id:1, type:'uav', level:'warn', when:Date.now()-5*60*1000, area:'kyiv_obl', textKey:'feed.ev1' },
-        { id:2, type:'shelling', level:'danger', when:Date.now()-12*60*1000, area:'kharkiv_raion', textKey:'feed.ev2' },
-        { id:3, type:'blockpost', level:'info', when:Date.now()-25*60*1000, area:'dnipro', textKey:'feed.ev3' },
-      ];
-      let circles = []; // заполнится из loadState()
-      let docs = [];    // заполнится из loadState()
+      let feedItems = []; // ← сюда будем класть реальные события с API
+      let circles = [];   // заполнится из loadState()
+      let docs = [];      // заполнится из loadState()
 
 
       /********************
@@ -969,14 +965,74 @@
         const label = level==='danger'? t('level.high'): level==='warn'? t('level.warn'): t('level.info');
         return `<span class="badge ${cls}">${label}</span>`;
       }
-      function renderFeed(){
-        const code = localStorage.getItem('sc_lang')||'uk';
-        feedList.innerHTML = feedData.map(ev=>`<div class="tile">
-          <div class="row"><div>${levelBadge(ev.level)} <span class="muted">${new Date(ev.when).toLocaleTimeString(code==='en'?'en-GB':code==='ru'?'ru-RU':'uk-UA',{hour:'2-digit',minute:'2-digit'})}</span></div>
-            <div class="muted">${t('area.'+ev.area)}</div></div>
-          <div style="margin-top:6px">${t(ev.textKey)}</div>
-        </div>`).join('');
+      // Небольшой словарик подписей областей (фолбэк к i18n)
+      const AREAS_UI = {
+        kyiv_obl: 'Київська обл.',
+        lviv_obl: 'Львівська обл.',
+        odesa_obl: 'Одеська обл.',
+        kharkiv_obl: 'Харківська обл.',
+        dnipropetrovsk_obl: 'Дніпропетровська обл.',
+        zaporizhzhia_obl: 'Запорізька обл.',
+        mykolaiv_obl: 'Миколаївська обл.',
+        kherson_obl: 'Херсонська обл.',
+        volyn_obl: 'Волинська обл.'
+      };
+
+      // Загрузка ленты с бэка
+      async function loadAlertsFromApi(filters = {}) {
+        const p = new URLSearchParams();
+        if (filters.area)  p.set('area',  filters.area);
+        if (filters.type)  p.set('type',  filters.type);
+        if (filters.level) p.set('level', filters.level);
+        if (filters.since) p.set('since', filters.since);
+        p.set('limit', String(filters.limit ?? 50));
+
+        const url = API_BASE + '/alerts?' + p.toString();
+        const r = await fetch(url, { headers: { 'accept':'application/json' }, mode:'cors' });
+        if (!r.ok) throw new Error('http ' + r.status);
+        return await r.json();
       }
+
+      // Рендер ленты
+      function renderAlerts(list) {
+        if (!feedList) return;
+        const code = localStorage.getItem('sc_lang') || 'uk';
+        const items = Array.isArray(list) ? list : [];
+
+        feedList.innerHTML = items.map(a => {
+          const when = new Date(a.happened_at || a.when || Date.now());
+          const hh = when.toLocaleTimeString(
+            code==='en'?'en-GB': code==='ru'?'ru-RU':'uk-UA',
+            { hour:'2-digit', minute:'2-digit' }
+          );
+
+          const areaName = t('area.' + a.area) || AREAS_UI[a.area] || a.area;
+          const levelCls =
+            a.level === 'danger' ? 'badge danger' :
+            a.level === 'warn'   ? 'badge warn'   : 'badge';
+
+          const title =
+            a.type === 'air_alert' ? (code==='ru'?'Воздушная тревога': code==='en'?'Air alert':'Повітряна тривога') :
+            a.type === 'uav'       ? (code==='ru'?'Активність БПЛА?': code==='en'?'Possible UAV activity':'Може бути активність БпЛА') :
+            a.type === 'missile'   ? (code==='ru'?'Загроза ракетного удара': code==='en'?'Missile threat':'Загроза ракетного удару') :
+            a.type === 'shelling'  ? (code==='ru'?'Ризик обстрелов': code==='en'?'Shelling risk':'Ризик обстрілів') :
+                                    (code==='ru'?'Событие': code==='en'?'Event':'Подія');
+
+          return `
+            <div class="tile">
+              <div class="row">
+                <span class="${levelCls}">${title}</span>
+                <span class="muted">${hh}</span>
+              </div>
+              <div class="row">
+                <div class="muted">${areaName}</div>
+                <div class="muted">${a.source ? String(a.source).slice(0,32) : ''}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
 
       /********************
        *  CIRCLES render helpers (depend on t, circleList)
@@ -1015,7 +1071,7 @@
           // Update dynamic bits
           weatherCityEl.textContent = t('weather.city.'+weather.cityKey);
           if (weatherBox.firstChild) weatherBox.firstChild.textContent = `🌡️ ${weather.tempC}° • ${weather.icon} `;
-          renderFeed();
+          renderAlerts(feedItems);
           renderCircles();
           await saveState({ lang: code });
         }
@@ -1254,6 +1310,17 @@
       window.addEventListener('load', () => {
         loginAndLoad(); // Без setInterval/без бесконечных повторов
       });
+      // Первичная подгрузка ленты (паблик эндпоинт, токен не нужен)
+      (async () => {
+        try {
+          feedItems = await loadAlertsFromApi({ limit: 50 });
+          renderAlerts(feedItems);
+          addLog('feed loaded: ' + feedItems.length);
+        } catch (e) {
+          addLog('feed load failed: ' + String(e));
+        }
+      })();
+
       
       /********************
        *  Circles controls
@@ -1502,7 +1569,17 @@
       const filtersModal = document.getElementById('filtersModal');
       document.getElementById('btnFilters').onclick = ()=>filtersModal.classList.add('show');
       document.getElementById('filtersCancel').onclick = ()=>filtersModal.classList.remove('show');
-      document.getElementById('filtersApply').onclick = ()=>{ filtersModal.classList.remove('show'); alert('Filters applied (mock)'); };
+      document.getElementById('filtersApply').onclick = async ()=> {
+        filtersModal.classList.remove('show');
+        try {
+          // TODO: сюда подставишь реальные фильтры из UI
+          feedItems = await loadAlertsFromApi({ limit: 50 });
+          renderAlerts(feedItems);
+        } catch (e) {
+          addLog('filters apply failed: ' + String(e));
+        }
+      };
+
 
       // PIN buttons
       document.getElementById('btnSetPIN').onclick = setPIN;
@@ -1521,11 +1598,11 @@
        *  TESTS — existing + added
        ********************/
       console.assert(typeof levelBadge('warn')==='string', 'levelBadge must return HTML string');
-      console.assert(feedData.length===3, 'feedData length should be 3');
-      // NEW: feedList exists & render produces same count as feedData
       console.assert(!!feedList, 'feedList element should exist');
-      renderFeed();
-      console.assert(feedList.querySelectorAll('.tile').length===feedData.length, 'renderFeed should render all items');
+      // sanity: пустая лента не падает
+      renderAlerts([]);
+      console.assert(feedList.querySelectorAll('.tile').length===0, 'renderAlerts should render 0 items for empty list');
+
       // NEW: language toggling updates nav label
       console.assert((()=>{applyLang('ru'); const ok=document.querySelector('[data-i18n="nav.settings"]').textContent==='Настр.'; applyLang('uk'); return ok; })(), 'i18n should switch nav labels');
       // Existing docs test (kept)
