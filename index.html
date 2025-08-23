@@ -215,6 +215,40 @@
         <div class="list" id="feedList"></div>
       </section>
 
+      <!-- GUIDE (Довідник) -->
+      <section id="screen-guide" class="screen">
+        <div class="card">
+          <div class="row">
+            <div class="h">Довідник</div>
+            <button class="btn" id="btnGuideRefresh">↻ Оновити</button>
+          </div>
+          <div class="list" id="guideList"></div>
+        </div>
+
+        <!-- Просмотр статьи -->
+        <div style="height:10px"></div>
+        <div class="card" id="guideView" style="display:none">
+          <div class="row">
+            <div class="h" id="guideTitle">—</div>
+            <button class="btn" id="btnGuideBack">← Назад</button>
+          </div>
+          <div id="guideBody" class="muted" style="white-space:pre-wrap"></div>
+        </div>
+      </section>
+
+      <!-- PRACTICES (Практики) -->
+      <section id="screen-practices" class="screen">
+        <div class="card">
+          <div class="row">
+            <div class="h">Практики</div>
+            <button class="btn" id="btnPracticesInfo">ℹ️</button>
+          </div>
+          <div class="grid cols-2" id="practiceGrid">
+            <!-- Карточки практик (JS вставит) -->
+          </div>
+        </div>
+      </section>
+
       <!-- CIRCLES -->
       <section id="screen-circles" class="screen">
         <div class="card">
@@ -356,6 +390,8 @@
       <button class="tab" data-tab="circles"><div>👥</div><span data-i18n="nav.circles">Кола</span></button>
       <button class="tab" data-tab="ice"><div>❄️</div><span data-i18n="nav.ice">ICE</span></button>
       <button class="tab" data-tab="settings"><div>⚙️</div><span data-i18n="nav.settings">Налашт.</span></button>
+      <button class="tab" data-tab="guide"><div>📚</div><span>Довідник</span></button>
+      <button class="tab" data-tab="practices"><div>🧘</div><span>Практики</span></button>
       <button class="tab" data-tab="pro"><div>⭐</div><span data-i18n="nav.pro">Pro</span></button>
     </nav>
   </div>
@@ -415,6 +451,11 @@
         localStorage.getItem('sc_api_base') ||
         'https://safeconnect-api-dev.spacewenderer1.workers.dev'
       ).trim();
+      // База статики (тот же GitHub Pages корень)
+      const STATIC_BASE = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
+      // Контент (папка /content рядом с index.html)
+      const CONTENT_BASE = STATIC_BASE + 'content/';
+
 
       // 2) Пробрасываем в глобал, чтобы можно было смотреть в консоли
       window.API_BASE = API_BASE;
@@ -849,6 +890,8 @@
         'ice-meds': document.getElementById('screen-ice-meds'),
         'ice-blood': document.getElementById('screen-ice-blood'),
         'ice-docs': document.getElementById('screen-ice-docs'),
+        guide: document.getElementById('screen-guide'),
+        practices: document.getElementById('screen-practices'),
       };
       function go(tab){
         for(const t of tabs) t.classList.toggle('active', t.dataset.tab===tab);
@@ -874,6 +917,18 @@
       const feedList = document.getElementById('feedList');
       const circleList = document.getElementById('circleList');
       const docChips = document.getElementById('docChips');
+
+      // GUIDE refs
+      const guideList = document.getElementById('guideList');
+      const guideView = document.getElementById('guideView');
+      const guideTitle = document.getElementById('guideTitle');
+      const guideBody = document.getElementById('guideBody');
+      const btnGuideBack = document.getElementById('btnGuideBack');
+      const btnGuideRefresh = document.getElementById('btnGuideRefresh');
+
+      // PRACTICES refs
+      const practiceGrid = document.getElementById('practiceGrid');
+      const btnPracticesInfo = document.getElementById('btnPracticesInfo');
 
       /********************
        *  DATA (feed, circles, limits)
@@ -1057,6 +1112,305 @@
         showCircle(id);
       });
 
+      /********************
+       * GUIDE: load & render
+       ********************/
+      let guideIndex = null;   // кэш index.json
+      let currentArticle = null;
+
+      async function fetchJSON(u) {
+        const r = await fetch(u, { mode:'cors' });
+        if (!r.ok) throw new Error('http '+r.status);
+        return await r.json();
+      }
+      async function fetchText(u) {
+        const r = await fetch(u, { mode:'cors' });
+        if (!r.ok) throw new Error('http '+r.status);
+        return await r.text();
+      }
+
+      async function loadGuideIndex(force=false){
+        if (guideIndex && !force) return guideIndex;
+        guideIndex = await fetchJSON(CONTENT_BASE + 'index.json');
+        return guideIndex;
+      }
+
+      function isProUser(me){
+        // у тебя /authed/me уже отдает pro:{status,until}; используем локально
+        // тут легкий хелпер: если localStorage имеет 'sc_access_token' и в me pro.status!=='none' — pro
+        return !!(me && me.pro && me.pro.status && me.pro.status !== 'none');
+      }
+
+      function renderGuideList(index, me){
+        const pro = isProUser(me);
+        guideList.innerHTML = index.categories.map(cat => {
+          const items = cat.items.map(it => {
+            const locked = it.pro && !pro;
+            const lockBadge = locked ? ' <span class="badge">PRO</span>' : '';
+            return `
+              <div class="tile row" data-article="${it.file}" data-title="${it.title}" data-locked="${locked?'1':'0'}">
+                <div><b>${it.title}</b>${lockBadge}<div class="muted">${cat.title}</div></div>
+                <button class="btn equal">Відкрити</button>
+              </div>`;
+          }).join('');
+          return `<div class="list">${items}</div>`;
+        }).join('');
+      }
+
+      async function openGuide(file, title){
+        guideTitle.textContent = title || '—';
+        guideBody.textContent = 'Завантаження…';
+        guideView.style.display = 'block';
+        try {
+          const txt = await fetchText(CONTENT_BASE + file);
+          guideBody.textContent = txt;   // простая отрисовка MD как преформат; позже подключим рендерер Markdown
+          currentArticle = { file, title };
+        } catch(e){
+          guideBody.textContent = 'Помилка завантаження.';
+        }
+      }
+
+      guideList?.addEventListener('click', async (e) => {
+        const row = e.target.closest('[data-article]');
+        if (!row) return;
+        const locked = row.getAttribute('data-locked') === '1';
+        if (locked) { openProModal(); return; }
+        await openGuide(row.getAttribute('data-article'), row.getAttribute('data-title'));
+      });
+
+      btnGuideBack?.addEventListener('click', () => {
+        guideView.style.display = 'none';
+        currentArticle = null;
+      });
+
+      btnGuideRefresh?.addEventListener('click', async () => {
+        try {
+          await loadGuideIndex(true);
+          const me = await whoAmI(); // уже есть в твоём коде
+          renderGuideList(guideIndex, me && !me.error ? me : null);
+        } catch(e){
+          alert('Не вдалося оновити список');
+        }
+      });
+
+      /********************
+       * PRACTICES
+       ********************/
+      // Простые звуки через WebAudio (без файлов)
+      const AudioSC = (() => {
+        let ctx = null;
+        function ensureCtx(){
+          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+          return ctx;
+        }
+        function beep(duration=0.15, freq=880){
+          const c = ensureCtx();
+          const o = c.createOscillator();
+          const g = c.createGain();
+          o.type='sine'; o.frequency.value=freq;
+          o.connect(g); g.connect(c.destination);
+          g.gain.setValueAtTime(0.0001, c.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.3, c.currentTime+0.01);
+          o.start();
+          setTimeout(()=>{
+            g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime+0.01);
+            setTimeout(()=>{ o.stop(); o.disconnect(); g.disconnect(); }, 60);
+          }, duration*1000);
+        }
+        // Белый шум
+        function whiteNoiseStart(){
+          const c = ensureCtx();
+          const buffer = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
+          const src = c.createBufferSource();
+          const g = c.createGain();
+          src.buffer = buffer; src.loop = true;
+          src.connect(g); g.connect(c.destination);
+          g.gain.value = 0.06;
+          src.start();
+          return { src, g };
+        }
+        return { beep, whiteNoiseStart };
+      })();
+
+      // UI карточки практик
+      const PRACTICES = [
+        { key:'box', title:'Box Breathing 4-4-4-4', pro:false },
+        { key:'wimhof', title:'Wim-Hof Session', pro:true },
+        { key:'focus', title:'Фокус (Pomodoro 25/5)', pro:false },
+        { key:'noise', title:'Шуми: white/pink/brown', pro:false }
+      ];
+
+      function renderPractices(me){
+        const pro = isProUser(me);
+        practiceGrid.innerHTML = PRACTICES.map(p => {
+          const locked = p.pro && !pro;
+          return `
+            <div class="tile" data-practice="${p.key}" data-locked="${locked?'1':'0'}">
+              <div class="row"><b>${p.title}</b>${locked? ' <span class="badge">PRO</span>':''}</div>
+              <div class="muted">Торкніться, щоб запустити</div>
+            </div>`;
+        }).join('');
+      }
+
+      practiceGrid?.addEventListener('click', (e)=>{
+        const tile = e.target.closest('[data-practice]');
+        if(!tile) return;
+        if (tile.getAttribute('data-locked')==='1') { openProModal(); return; }
+        const key = tile.getAttribute('data-practice');
+        if (key==='box') startBoxBreathing();
+        if (key==='wimhof') startWimHof();
+        if (key==='focus') startFocusPomodoro();
+        if (key==='noise') startNoisePanel();
+      });
+
+      btnPracticesInfo?.addEventListener('click', ()=>alert('Практики працюють офлайн. Для PRO сесій — оформіть підписку.'));
+
+      // ---- Практика: Box Breathing ----
+      let boxTimer = null, boxPhase = 0, boxRemain = 0;
+      function startBoxBreathing(){
+        stopBox(); AudioSC.beep();
+        const phases = ['Вдих 4с', 'Затримка 4с', 'Видих 4с', 'Затримка 4с'];
+        boxPhase = 0; boxRemain = 4;
+        const overlay = makePracticeOverlay('Box Breathing 4-4-4-4');
+        const label = addPracticeLabel(overlay);
+        const tick = ()=>{
+          label.textContent = `${phases[boxPhase]} • ${boxRemain}s`;
+          if (--boxRemain <= 0){
+            boxPhase = (boxPhase+1)%4;
+            boxRemain = 4;
+            AudioSC.beep();
+          }
+        };
+        tick();
+        boxTimer = setInterval(tick, 1000);
+        addPracticeStop(overlay, stopBox);
+      }
+      function stopBox(){ if (boxTimer){ clearInterval(boxTimer); boxTimer=null; } closePracticeOverlay(); }
+
+      // ---- Практика: Wim-Hof (спрощена guided) ----
+      let whTimer=null, whState=null;
+      function startWimHof(){
+        stopWimHof(); AudioSC.beep();
+        // Проста сесія: 30 глибоких вдихів/видихів (≈чекер), потім затримка 60с, потім відновлюючий вдих 15с — 3 кола
+        const overlay = makePracticeOverlay('Wim-Hof Session (спрощено)');
+        const label = addPracticeLabel(overlay);
+        let round = 1;
+        function doRound(){
+          let breaths = 30;
+          whState='breath';
+          const breathTick = setInterval(()=>{
+            label.textContent = `Раунд ${round}/3 • Дихання: ${breaths}…`;
+            AudioSC.beep(0.05, 660);
+            if (--breaths<=0){
+              clearInterval(breathTick);
+              holdPhase();
+            }
+          }, 2000);
+        }
+        function holdPhase(){
+          whState='hold';
+          let t=60;
+          label.textContent = `Затримка дихання: ${t}s`;
+          const holdTick = setInterval(()=>{
+            label.textContent = `Затримка дихання: ${--t}s`;
+            if (t<=0){
+              clearInterval(holdTick);
+              recoverPhase();
+            }
+          }, 1000);
+        }
+        function recoverPhase(){
+          whState='recover';
+          let t=15; AudioSC.beep(0.1, 520);
+          const recTick = setInterval(()=>{
+            label.textContent = `Відновлення дихання: ${--t}s`;
+            if (t<=0){
+              clearInterval(recTick);
+              round++;
+              if (round<=3){ doRound(); } else { stopWimHof(); }
+            }
+          }, 1000);
+        }
+        doRound();
+        addPracticeStop(overlay, stopWimHof);
+      }
+      function stopWimHof(){ if (whTimer){ clearInterval(whTimer); whTimer=null; } closePracticeOverlay(); }
+
+      // ---- Практика: Focus Pomodoro 25/5 ----
+      let pomoTimer=null, pomoRemain=0, pomoPhase='focus';
+      function startFocusPomodoro(){
+        stopFocusPomodoro(); AudioSC.beep();
+        const overlay = makePracticeOverlay('Фокус (25/5)');
+        const label = addPracticeLabel(overlay);
+        function setPhase(ph, minutes){
+          pomoPhase = ph; pomoRemain = minutes*60;
+          AudioSC.beep(0.1, ph==='focus'?880:520);
+        }
+        setPhase('focus', 25);
+        const tick = ()=>{
+          label.textContent = `${pomoPhase==='focus'?'Фокус':'Перерва'} • ${fmtTime(pomoRemain)}`;
+          if (--pomoRemain<=0){
+            if (pomoPhase==='focus') setPhase('break', 5); else setPhase('focus', 25);
+          }
+        };
+        tick();
+        pomoTimer = setInterval(tick, 1000);
+        addPracticeStop(overlay, stopFocusPomodoro);
+      }
+      function stopFocusPomodoro(){ if (pomoTimer){ clearInterval(pomoTimer); pomoTimer=null; } closePracticeOverlay(); }
+      function fmtTime(s){ const m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
+
+      // ---- Практика: Noise ----
+      let noiseObj=null;
+      function startNoisePanel(){
+        closePracticeOverlay();
+        const overlay = makePracticeOverlay('Шуми');
+        const body = document.createElement('div');
+        body.style.marginTop='8px';
+        body.innerHTML = `
+          <div class="row"><button class="btn" id="btnNoiseWhite">White</button><button class="btn" id="btnNoiseStop">Stop</button></div>
+          <div class="muted">Pink/Brown додамо пізніше</div>`;
+        overlay.appendChild(body);
+        document.getElementById('btnNoiseWhite').onclick = ()=>{
+          stopNoise(); noiseObj = AudioSC.whiteNoiseStart();
+        };
+        document.getElementById('btnNoiseStop').onclick = stopNoise;
+        addPracticeStop(overlay, ()=>{ stopNoise(); closePracticeOverlay(); });
+      }
+      function stopNoise(){ if (noiseObj){ try{ noiseObj.src.stop(); noiseObj.src.disconnect(); noiseObj.g.disconnect(); }catch{} noiseObj=null; } }
+
+      // ---- Вспомогательные UI для практик ----
+      function makePracticeOverlay(title){
+        let exist = document.getElementById('practiceOverlay');
+        if (exist) exist.remove();
+        const ov = document.createElement('div');
+        ov.id='practiceOverlay';
+        ov.className='modal show';
+        ov.innerHTML = `
+          <div class="box" style="max-width:420px">
+            <div class="h">${title}</div>
+            <div id="practiceContent" class="muted" style="margin-top:6px"></div>
+            <div class="row" style="margin-top:10px"><button class="btn" id="btnPracticeStop">Завершити</button></div>
+          </div>`;
+        document.body.appendChild(ov);
+        return ov.querySelector('#practiceContent');
+      }
+      function addPracticeLabel(container){
+        const el = document.createElement('div');
+        el.style.fontSize='18px';
+        el.style.marginTop='6px';
+        container.appendChild(el);
+        return el;
+      }
+      function addPracticeStop(overlay, stopFn){
+        overlay.parentElement.querySelector('#btnPracticeStop').onclick = stopFn;
+      }
+      function closePracticeOverlay(){
+        const ov = document.getElementById('practiceOverlay');
+        if (ov) ov.remove();
+      }
 
       /********************
        *  applyLang AFTER renderers exist
@@ -1310,6 +1664,24 @@
       window.addEventListener('load', () => {
         loginAndLoad(); // Без setInterval/без бесконечных повторов
       });
+      // Первичная загрузка Довідника / Практик (не требует токена)
+      (async () => {
+        try {
+          const idx = await loadGuideIndex(false);
+          const me = await whoAmI();
+          renderGuideList(idx, me && !me.error ? me : null);
+        } catch (e) {
+          addLog('guide load failed: ' + String(e));
+        }
+      })();
+      (async () => {
+        try {
+          const me = await whoAmI();
+          renderPractices(me && !me.error ? me : null);
+        } catch (e) {
+          renderPractices(null);
+        }
+      })();
       // Первичная подгрузка ленты (паблик эндпоинт, токен не нужен)
       (async () => {
         try {
