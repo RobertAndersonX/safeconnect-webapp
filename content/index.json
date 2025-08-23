@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "key": "critical",
+      "title": "Безпека / Невідкладно",
+      "items": [
+        { "id": "under-shelling", "title": "Як діяти під час обстрілу", "file": "critical_under_shelling.md", "pro": false },
+        { "id": "first-aid-bleeding", "title": "Перша допомога при кровотечі", "file": "critical_first_aid_bleeding.md", "pro": false },
+        { "id": "evac-bag", "title": "Тривожна валіза (чек-лист)", "file": "critical_go_bag.md", "pro": true }
+      ]
+    },
+    {
+      "key": "wellbeing",
+      "title": "Самопочуття / Сон / Стрес",
+      "items": [
+        { "id": "sleep-basics", "title": "Гігієна сну (основи)", "file": "well_sleep_basics.md", "pro": false },
+        { "id": "nutrition-quick", "title": "Харчування: швидкі принципи", "file": "well_nutrition_quick.md", "pro": false },
+        { "id": "focus-habits", "title": "Звички концентрації", "file": "well_focus_habits.md", "pro": true }
+      ]
+    }
+  ]
+}
