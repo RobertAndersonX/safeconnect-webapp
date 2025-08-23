@@ -1,13 +1,19 @@
 // sw.js — SafeConnect (GitHub Pages scope-aware)
-const CACHE = 'sc-cache-v5';            // bump при каждом изменении
+const CACHE = 'sc-cache-v6'; // ↑ bump
 const SCOPE = self.registration.scope;  // напр.: https://....github.io/safeconnect-webapp/
 const ASSET_PATHS = [
-  '',              // index.html
+  '',
   'index.html',
   'manifest.webmanifest',
   'icon-192.png',
-  'icon-512.png'
+  'icon-512.png',
+  // базовые индексы контента
+  'content/index.json',
+  // (фактические md подтянутся динамически и кэшируются по fetch)
+  // звуки (если добавишь файлы):
+  // 'audio/bell.mp3', 'audio/tick.mp3'
 ];
+
 // абсолютные URL под текущий scope (важно для GH Pages)
 const ASSETS = ASSET_PATHS.map(p => new URL(p, SCOPE).toString());
 
@@ -44,7 +50,26 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // контент (guide/practices): cache-first
+  if (url.pathname.startsWith(new URL('content/', SCOPE).pathname)) {
+    e.respondWith(
+      caches.open(CACHE).then(async cache => {
+        const cached = await cache.match(e.request);
+        if (cached) return cached;
+        const fresh = await fetch(e.request);
+        if (fresh.ok) cache.put(e.request, fresh.clone());
+        return fresh;
+      })
+    );
+    return;
+  }
+
+  // аудио/мелкий статика (если будет): cache-first
+  if (url.pathname.startsWith(new URL('audio/', SCOPE).pathname)) {
+    e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+    return;
+  }
+  
   // Offline-first для остальной статики
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
 });
-
