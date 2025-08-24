@@ -158,6 +158,23 @@
       box-shadow:0 24px 60px rgba(0,0,0,.45);
       padding:14px 14px 18px;
     }
+    /* Полноэкранная непрозрачная страница для довідника */
+    .modal.page{ position:fixed; inset:0; display:none; z-index:60; background:var(--bg); }
+    .modal.page.show{ display:block; }
+
+    /* Бокс разворачиваем на всю страницу, убираем рамки/радиусы/градиенты */
+    .modal.page .box{
+      width:100%; height:100%;
+      max-width:none; max-height:none;
+      border:0; border-radius:0;
+      background:var(--surface);
+      display:flex; flex-direction:column;
+      padding:14px;
+    }
+
+    /* Контент довідника — прокручиваемая область */
+    #guideBody{ flex:1; overflow:auto; margin-top:8px; line-height:1.55; }
+
     .sheet .sheet-hdr{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px }
     .sheet .sheet-title{ font-weight:800; font-size:18px }
     .sheet .sheet-actions{ display:flex; gap:8px }
@@ -254,6 +271,7 @@
           </div>
           <div class="list" id="guideList"></div>
         </div>
+      </section> <!-- ← ЭТОГО НЕ ХВАТАЛО -->
 
       <!-- PRACTICES (Практики) -->
       <section id="screen-practices" class="screen">
@@ -457,14 +475,14 @@
     </div>
     </div>
 
-  <!-- GUIDE fullscreen modal -->
-  <div class="modal" id="guideModal">
-    <div class="box" style="max-width:960px; width:90vw; height:80vh; display:flex; flex-direction:column">
+  <!-- GUIDE fullscreen page -->
+  <div class="modal page" id="guideModal">
+    <div class="box">
       <div class="row">
         <div class="h" id="guideTitle">Guide</div>
         <button class="btn" id="guideClose">Закрити</button>
       </div>
-      <div id="guideBody" style="overflow:auto; margin-top:8px; line-height:1.55"></div>
+      <div id="guideBody"></div>
     </div>
   </div>
 
