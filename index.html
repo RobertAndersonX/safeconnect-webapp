@@ -255,17 +255,6 @@
           <div class="list" id="guideList"></div>
         </div>
 
-        <!-- Просмотр статьи -->
-        <div style="height:10px"></div>
-        <div class="card" id="guideView" style="display:none">
-          <div class="row">
-            <div class="h" id="guideTitle">—</div>
-            <button class="btn" id="btnGuideBack">← Назад</button>
-          </div>
-          <div id="guideBody" class="muted" style="white-space:pre-wrap"></div>
-        </div>
-      </section>
-
       <!-- PRACTICES (Практики) -->
       <section id="screen-practices" class="screen">
         <div class="card">
@@ -974,10 +963,8 @@
 
       // GUIDE refs
       const guideList = document.getElementById('guideList');
-      const guideView = document.getElementById('guideView');
       const guideTitle = document.getElementById('guideTitle');
       const guideBody = document.getElementById('guideBody');
-      const btnGuideBack = document.getElementById('btnGuideBack');
       const btnGuideRefresh = document.getElementById('btnGuideRefresh');
 
       // PRACTICES refs
