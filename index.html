@@ -145,6 +145,36 @@
     .row .btn,
     .btn { pointer-events: auto; }
 
+    /* --- Fullscreen modal sheets for Guide/Practices --- */
+    .modal.fullscreen{ display:none; position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.55); }
+    .modal.fullscreen.show{ display:flex; }
+    .modal.fullscreen .sheet{
+      width:clamp(320px, 92vw, 920px);
+      max-height:84vh;
+      overflow:auto;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.22));
+      box-shadow:0 24px 60px rgba(0,0,0,.45);
+      padding:14px 14px 18px;
+    }
+    .sheet .sheet-hdr{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px }
+    .sheet .sheet-title{ font-weight:800; font-size:18px }
+    .sheet .sheet-actions{ display:flex; gap:8px }
+    .sheet .close{ height:36px }
+    .sheet .sheet-body{ color:var(--text); line-height:1.55 }
+    .sheet .sheet-body img{ max-width:100%; border-radius:10px }
+    .sheet .sheet-body pre, .sheet .sheet-body code{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background:var(--glass); border:1px solid var(--line); border-radius:10px; padding:.4em .6em;
+    }
+    /* practice-specific */
+    .practice-meta{ color:var(--muted); margin-bottom:8px }
+    .practice-big{ font-size:28px; font-weight:800; letter-spacing:.5px; text-align:center; margin:10px 0 2px }
+    .practice-phase{ text-align:center; color:var(--muted); margin-bottom:8px }
+    .practice-controls{ display:flex; gap:8px; justify-content:center; margin-top:10px }
+    .practice-btn{ height:44px; padding:0 14px }
+
   </style>
 </head>
 <body>
@@ -437,6 +467,30 @@
         </div>
     </div>
     </div>
+
+  <!-- GUIDE fullscreen modal -->
+  <div class="modal" id="guideModal">
+    <div class="box" style="max-width:960px; width:90vw; height:80vh; display:flex; flex-direction:column">
+      <div class="row">
+        <div class="h" id="guideTitle">Guide</div>
+        <button class="btn" id="guideClose">Закрити</button>
+      </div>
+      <div id="guideBody" style="overflow:auto; margin-top:8px; line-height:1.55"></div>
+    </div>
+  </div>
+
+  <!-- PRACTICES fullscreen modal -->
+  <div class="modal" id="practiceModal">
+    <div class="box" style="max-width:420px; width:90vw;">
+      <div class="row">
+        <div class="h" id="practiceTitle">Practice</div>
+        <button class="btn" id="practiceClose">Закрити</button>
+      </div>
+      <div id="practiceBody" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -1113,21 +1167,14 @@
       });
 
       /********************
-       * GUIDE: load & render
-       ********************/
+      * GUIDE (fullscreen modal): load & render
+      ********************/
       let guideIndex = null;   // кэш index.json
       let currentArticle = null;
 
-      async function fetchJSON(u) {
-        const r = await fetch(u, { mode:'cors' });
-        if (!r.ok) throw new Error('http '+r.status);
-        return await r.json();
-      }
-      async function fetchText(u) {
-        const r = await fetch(u, { mode:'cors' });
-        if (!r.ok) throw new Error('http '+r.status);
-        return await r.text();
-      }
+      // зависи от твоей константы CONTENT_BASE (например ".../content/")
+      async function fetchJSON(u){ const r = await fetch(u, {mode:'cors'}); if(!r.ok) throw new Error('http '+r.status); return r.json(); }
+      async function fetchText(u){ const r = await fetch(u, {mode:'cors'}); if(!r.ok) throw new Error('http '+r.status); return r.text(); }
 
       async function loadGuideIndex(force=false){
         if (guideIndex && !force) return guideIndex;
@@ -1136,8 +1183,6 @@
       }
 
       function isProUser(me){
-        // у тебя /authed/me уже отдает pro:{status,until}; используем локально
-        // тут легкий хелпер: если localStorage имеет 'sc_access_token' и в me pro.status!=='none' — pro
         return !!(me && me.pro && me.pro.status && me.pro.status !== 'none');
       }
 
@@ -1148,107 +1193,228 @@
             const locked = it.pro && !pro;
             const lockBadge = locked ? ' <span class="badge">PRO</span>' : '';
             return `
-              <div class="tile row" data-article="${it.file}" data-title="${it.title}" data-locked="${locked?'1':'0'}">
-                <div><b>${it.title}</b>${lockBadge}<div class="muted">${cat.title}</div></div>
-                <button class="btn equal">Відкрити</button>
+              <div class="tile row">
+                <div>
+                  <b>${it.title}</b>${lockBadge}
+                  <div class="muted">${cat.title}</div>
+                </div>
+                <button class="btn equal"
+                        data-guide-file="${it.file}"
+                        data-title="${it.title}"
+                        ${locked?'data-locked="1"':''}>
+                  Відкрити
+                </button>
               </div>`;
           }).join('');
           return `<div class="list">${items}</div>`;
         }).join('');
       }
 
+      /* ---- modal + md renderer ---- */
+      const guideModal   = document.getElementById('guideModal');
+      const guideTitleEl = document.getElementById('guideTitle');
+      const guideBodyEl  = document.getElementById('guideBody');
+      document.getElementById('guideClose').onclick = () => {
+        guideModal.classList.remove('show');
+        currentArticle = null;
+      };
+
+      // очень простой md→html (для MVP)
+      function mdToHtml(md){
+        return String(md||'')
+          .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+          .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+          .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+          .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+          .replace(/\*(.*?)\*/g, '<i>$1</i>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/^\s*-\s+(.*)$/gm, '<li>$1</li>')
+          .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+          .replace(/\n{2,}/g, '</p><p>')
+          .replace(/^/, '<p>').concat('</p>');
+      }
+
       async function openGuide(file, title){
-        guideTitle.textContent = title || '—';
-        guideBody.textContent = 'Завантаження…';
-        guideView.style.display = 'block';
-        try {
-          const txt = await fetchText(CONTENT_BASE + file);
-          guideBody.textContent = txt;   // простая отрисовка MD как преформат; позже подключим рендерер Markdown
+        guideTitleEl.textContent = title || '—';
+        guideBodyEl.innerHTML = '<div class="muted">Завантаження…</div>';
+        guideModal.classList.add('show');
+
+        try{
+          const md = await fetchText(CONTENT_BASE + file);
+          guideBodyEl.innerHTML = mdToHtml(md);
           currentArticle = { file, title };
-        } catch(e){
-          guideBody.textContent = 'Помилка завантаження.';
+        }catch(e){
+          guideBodyEl.innerHTML = '<div class="muted">Помилка завантаження.</div>';
         }
       }
 
-      guideList?.addEventListener('click', async (e) => {
-        const row = e.target.closest('[data-article]');
-        if (!row) return;
-        const locked = row.getAttribute('data-locked') === '1';
-        if (locked) { openProModal(); return; }
-        await openGuide(row.getAttribute('data-article'), row.getAttribute('data-title'));
+      /* делегирование «Відкрити» из списка */
+      document.addEventListener('click', async (e)=>{
+        const btn = e.target.closest('[data-guide-file]');
+        if(!btn) return;
+        if (btn.getAttribute('data-locked') === '1'){ openProModal(); return; }
+        await openGuide(btn.getAttribute('data-guide-file'), btn.getAttribute('data-title') || 'Guide');
       });
 
-      btnGuideBack?.addEventListener('click', () => {
-        guideView.style.display = 'none';
-        currentArticle = null;
-      });
-
-      btnGuideRefresh?.addEventListener('click', async () => {
-        try {
+      /* Кнопка «Оновити» */
+      btnGuideRefresh?.addEventListener('click', async ()=>{
+        try{
           await loadGuideIndex(true);
-          const me = await whoAmI(); // уже есть в твоём коде
+          const me = await whoAmI();
           renderGuideList(guideIndex, me && !me.error ? me : null);
-        } catch(e){
+        }catch{
           alert('Не вдалося оновити список');
         }
       });
 
       /********************
-       * PRACTICES
-       ********************/
-      // Простые звуки через WebAudio (без файлов)
-      const AudioSC = (() => {
-        let ctx = null;
-        function ensureCtx(){
-          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-          return ctx;
-        }
-        function beep(duration=0.15, freq=880){
-          const c = ensureCtx();
-          const o = c.createOscillator();
-          const g = c.createGain();
-          o.type='sine'; o.frequency.value=freq;
-          o.connect(g); g.connect(c.destination);
-          g.gain.setValueAtTime(0.0001, c.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.3, c.currentTime+0.01);
-          o.start();
-          setTimeout(()=>{
-            g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime+0.01);
-            setTimeout(()=>{ o.stop(); o.disconnect(); g.disconnect(); }, 60);
-          }, duration*1000);
-        }
-        // Белый шум
-        function whiteNoiseStart(){
-          const c = ensureCtx();
-          const buffer = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
-          const data = buffer.getChannelData(0);
-          for (let i=0; i<data.length; i++) data[i] = Math.random()*2-1;
-          const src = c.createBufferSource();
-          const g = c.createGain();
-          src.buffer = buffer; src.loop = true;
-          src.connect(g); g.connect(c.destination);
-          g.gain.value = 0.06;
-          src.start();
-          return { src, g };
-        }
-        return { beep, whiteNoiseStart };
-      })();
+      * PRACTICES (fullscreen modal)
+      ********************/
 
-      // UI карточки практик
+      /* --- modal --- */
+      const practiceModal   = document.getElementById('practiceModal');
+      const practiceTitleEl = document.getElementById('practiceTitle');
+      const practiceBodyEl  = document.getElementById('practiceBody');
+      document.getElementById('practiceClose').onclick = stopPractice;
+
+      let __practiceTimer = null;
+      let __practiceRunning = false;
+      let __audioCtx = null;
+
+      /* --- sound helpers --- */
+      function beep(ms=100, freq=880){
+        try{
+          if (!__audioCtx) __audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+          const o = __audioCtx.createOscillator();
+          const g = __audioCtx.createGain();
+          o.type = 'sine'; o.frequency.value = freq;
+          o.connect(g); g.connect(__audioCtx.destination);
+          o.start();
+          setTimeout(()=>{ try{o.stop()}catch{}; }, ms);
+        }catch{}
+      }
+
+      function makeWhiteNoise(){
+        const c = __audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+        __audioCtx = c;
+        const buffer = c.createBuffer(1, c.sampleRate*2, c.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i=0;i<data.length;i++) data[i] = Math.random()*2-1;
+        const src = c.createBufferSource(); src.buffer = buffer; src.loop = true;
+        const g = c.createGain(); g.gain.value = 0.06;
+        src.connect(g); g.connect(c.destination); src.start();
+        return { src, g };
+      }
+
+      /* --- public stop --- */
+      function stopPractice(){
+        __practiceRunning = false;
+        if (__practiceTimer){ clearTimeout(__practiceTimer); __practiceTimer = null; }
+        practiceModal.classList.remove('show');
+      }
+
+      /* --- Box Breathing 4-4-4-4 (точный таймер без «раннего» бипа) --- */
+      function startBoxBreathing(opts={ inhale:4, hold1:4, exhale:4, hold2:4, cycles:6 }){
+        const { inhale, hold1, exhale, hold2, cycles } = opts;
+        practiceTitleEl.textContent = 'Box Breathing 4-4-4-4';
+        practiceBodyEl.innerHTML = `
+          <div class="practice-meta">Циклів: ${cycles}</div>
+          <div class="practice-big" id="bb-count">—</div>
+          <div class="practice-phase" id="bb-phase">Готовність</div>
+          <div class="practice-controls"><button class="btn practice-btn" id="bb-stop">Завершити</button></div>
+        `;
+        document.getElementById('bb-stop').onclick = stopPractice;
+
+        const phaseEl = document.getElementById('bb-phase');
+        const countEl = document.getElementById('bb-count');
+
+        const phases = [
+          { name:'Вдих',        sec: inhale, endBeep:true, freq:760 },
+          { name:'Затримка',    sec: hold1,  endBeep:true, freq:620 },
+          { name:'Видих',       sec: exhale, endBeep:true, freq:520 },
+          { name:'Затримка',    sec: hold2,  endBeep:true, freq:620 },
+        ];
+
+        practiceModal.classList.add('show');
+        __practiceRunning = true;
+
+        let cycle = 1, phaseIdx = 0;
+
+        const runPhase = () => {
+          if (!__practiceRunning) return;
+          const ph = phases[phaseIdx];
+          let left = ph.sec;
+          const start = performance.now();
+
+          phaseEl.textContent = ph.name;
+          countEl.textContent = `${left}s`;
+
+          const tick = () => {
+            if (!__practiceRunning) return;
+            const elapsed = Math.floor((performance.now() - start)/1000);
+            const still = ph.sec - elapsed;
+            if (still !== left){
+              left = Math.max(0, still);
+              countEl.textContent = `${left}s`;
+            }
+            if (left <= 0){
+              if (ph.endBeep) beep(110, ph.freq);
+              phaseIdx = (phaseIdx + 1) % phases.length;
+              if (phaseIdx === 0){
+                cycle += 1;
+                if (cycle > cycles){ stopPractice(); return; }
+              }
+              __practiceTimer = setTimeout(runPhase, 350); // небольшая пауза между фазами
+              return;
+            }
+            __practiceTimer = setTimeout(tick, 100); // частый тик для ровного счёта
+          };
+
+          __practiceTimer = setTimeout(tick, 100);
+        };
+
+        runPhase();
+      }
+
+      /* --- Noise (white) MVP --- */
+      let __noise = null;
+      function startNoisePanel(){
+        practiceTitleEl.textContent = 'Шуми';
+        practiceBodyEl.innerHTML = `
+          <div class="row" style="gap:8px; margin-top:8px">
+            <button class="btn" id="btnNoiseWhite">White</button>
+            <button class="btn" id="btnNoiseStop">Stop</button>
+          </div>
+          <div class="muted" style="margin-top:6px">Pink/Brown додамо пізніше</div>
+        `;
+        practiceModal.classList.add('show');
+        __practiceRunning = true;
+
+        document.getElementById('btnNoiseWhite').onclick = ()=>{
+          if (!__audioCtx) __audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+          if (__noise){ try{__noise.src.stop()}catch{} }
+          __noise = makeWhiteNoise();
+        };
+        document.getElementById('btnNoiseStop').onclick = ()=>{
+          if (__noise){ try{__noise.src.stop(); __noise.g.disconnect();}catch{} __noise=null; }
+        };
+      }
+
+      /* --- список практик и клики --- */
       const PRACTICES = [
-        { key:'box', title:'Box Breathing 4-4-4-4', pro:false },
-        { key:'wimhof', title:'Wim-Hof Session', pro:true },
+        { key:'box',   title:'Box Breathing 4-4-4-4', pro:false },
+        { key:'wimhof',title:'Wim-Hof Session',       pro:true  },
         { key:'focus', title:'Фокус (Pomodoro 25/5)', pro:false },
-        { key:'noise', title:'Шуми: white/pink/brown', pro:false }
+        { key:'noise', title:'Шуми: white/pink/brown',pro:false }
       ];
 
       function renderPractices(me){
         const pro = isProUser(me);
-        practiceGrid.innerHTML = PRACTICES.map(p => {
+        practiceGrid.innerHTML = PRACTICES.map(p=>{
           const locked = p.pro && !pro;
           return `
-            <div class="tile" data-practice="${p.key}" data-locked="${locked?'1':'0'}">
-              <div class="row"><b>${p.title}</b>${locked? ' <span class="badge">PRO</span>':''}</div>
+            <div class="tile" data-practice="${p.key}" ${locked?'data-locked="1"':''}>
+              <div class="row"><b>${p.title}</b>${locked?' <span class="badge">PRO</span>':''}</div>
               <div class="muted">Торкніться, щоб запустити</div>
             </div>`;
         }).join('');
@@ -1257,160 +1423,13 @@
       practiceGrid?.addEventListener('click', (e)=>{
         const tile = e.target.closest('[data-practice]');
         if(!tile) return;
-        if (tile.getAttribute('data-locked')==='1') { openProModal(); return; }
+        if (tile.getAttribute('data-locked')==='1'){ openProModal(); return; }
         const key = tile.getAttribute('data-practice');
-        if (key==='box') startBoxBreathing();
-        if (key==='wimhof') startWimHof();
-        if (key==='focus') startFocusPomodoro();
+        if (key==='box')   startBoxBreathing();
         if (key==='noise') startNoisePanel();
+        // Wim-Hof / Pomodoro добавим отдельными функциями, когда будешь готов
       });
 
-      btnPracticesInfo?.addEventListener('click', ()=>alert('Практики працюють офлайн. Для PRO сесій — оформіть підписку.'));
-
-      // ---- Практика: Box Breathing ----
-      let boxTimer = null, boxPhase = 0, boxRemain = 0;
-      function startBoxBreathing(){
-        stopBox(); AudioSC.beep();
-        const phases = ['Вдих 4с', 'Затримка 4с', 'Видих 4с', 'Затримка 4с'];
-        boxPhase = 0; boxRemain = 4;
-        const overlay = makePracticeOverlay('Box Breathing 4-4-4-4');
-        const label = addPracticeLabel(overlay);
-        const tick = ()=>{
-          label.textContent = `${phases[boxPhase]} • ${boxRemain}s`;
-          if (--boxRemain <= 0){
-            boxPhase = (boxPhase+1)%4;
-            boxRemain = 4;
-            AudioSC.beep();
-          }
-        };
-        tick();
-        boxTimer = setInterval(tick, 1000);
-        addPracticeStop(overlay, stopBox);
-      }
-      function stopBox(){ if (boxTimer){ clearInterval(boxTimer); boxTimer=null; } closePracticeOverlay(); }
-
-      // ---- Практика: Wim-Hof (спрощена guided) ----
-      let whTimer=null, whState=null;
-      function startWimHof(){
-        stopWimHof(); AudioSC.beep();
-        // Проста сесія: 30 глибоких вдихів/видихів (≈чекер), потім затримка 60с, потім відновлюючий вдих 15с — 3 кола
-        const overlay = makePracticeOverlay('Wim-Hof Session (спрощено)');
-        const label = addPracticeLabel(overlay);
-        let round = 1;
-        function doRound(){
-          let breaths = 30;
-          whState='breath';
-          const breathTick = setInterval(()=>{
-            label.textContent = `Раунд ${round}/3 • Дихання: ${breaths}…`;
-            AudioSC.beep(0.05, 660);
-            if (--breaths<=0){
-              clearInterval(breathTick);
-              holdPhase();
-            }
-          }, 2000);
-        }
-        function holdPhase(){
-          whState='hold';
-          let t=60;
-          label.textContent = `Затримка дихання: ${t}s`;
-          const holdTick = setInterval(()=>{
-            label.textContent = `Затримка дихання: ${--t}s`;
-            if (t<=0){
-              clearInterval(holdTick);
-              recoverPhase();
-            }
-          }, 1000);
-        }
-        function recoverPhase(){
-          whState='recover';
-          let t=15; AudioSC.beep(0.1, 520);
-          const recTick = setInterval(()=>{
-            label.textContent = `Відновлення дихання: ${--t}s`;
-            if (t<=0){
-              clearInterval(recTick);
-              round++;
-              if (round<=3){ doRound(); } else { stopWimHof(); }
-            }
-          }, 1000);
-        }
-        doRound();
-        addPracticeStop(overlay, stopWimHof);
-      }
-      function stopWimHof(){ if (whTimer){ clearInterval(whTimer); whTimer=null; } closePracticeOverlay(); }
-
-      // ---- Практика: Focus Pomodoro 25/5 ----
-      let pomoTimer=null, pomoRemain=0, pomoPhase='focus';
-      function startFocusPomodoro(){
-        stopFocusPomodoro(); AudioSC.beep();
-        const overlay = makePracticeOverlay('Фокус (25/5)');
-        const label = addPracticeLabel(overlay);
-        function setPhase(ph, minutes){
-          pomoPhase = ph; pomoRemain = minutes*60;
-          AudioSC.beep(0.1, ph==='focus'?880:520);
-        }
-        setPhase('focus', 25);
-        const tick = ()=>{
-          label.textContent = `${pomoPhase==='focus'?'Фокус':'Перерва'} • ${fmtTime(pomoRemain)}`;
-          if (--pomoRemain<=0){
-            if (pomoPhase==='focus') setPhase('break', 5); else setPhase('focus', 25);
-          }
-        };
-        tick();
-        pomoTimer = setInterval(tick, 1000);
-        addPracticeStop(overlay, stopFocusPomodoro);
-      }
-      function stopFocusPomodoro(){ if (pomoTimer){ clearInterval(pomoTimer); pomoTimer=null; } closePracticeOverlay(); }
-      function fmtTime(s){ const m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
-
-      // ---- Практика: Noise ----
-      let noiseObj=null;
-      function startNoisePanel(){
-        closePracticeOverlay();
-        const overlay = makePracticeOverlay('Шуми');
-        const body = document.createElement('div');
-        body.style.marginTop='8px';
-        body.innerHTML = `
-          <div class="row"><button class="btn" id="btnNoiseWhite">White</button><button class="btn" id="btnNoiseStop">Stop</button></div>
-          <div class="muted">Pink/Brown додамо пізніше</div>`;
-        overlay.appendChild(body);
-        document.getElementById('btnNoiseWhite').onclick = ()=>{
-          stopNoise(); noiseObj = AudioSC.whiteNoiseStart();
-        };
-        document.getElementById('btnNoiseStop').onclick = stopNoise;
-        addPracticeStop(overlay, ()=>{ stopNoise(); closePracticeOverlay(); });
-      }
-      function stopNoise(){ if (noiseObj){ try{ noiseObj.src.stop(); noiseObj.src.disconnect(); noiseObj.g.disconnect(); }catch{} noiseObj=null; } }
-
-      // ---- Вспомогательные UI для практик ----
-      function makePracticeOverlay(title){
-        let exist = document.getElementById('practiceOverlay');
-        if (exist) exist.remove();
-        const ov = document.createElement('div');
-        ov.id='practiceOverlay';
-        ov.className='modal show';
-        ov.innerHTML = `
-          <div class="box" style="max-width:420px">
-            <div class="h">${title}</div>
-            <div id="practiceContent" class="muted" style="margin-top:6px"></div>
-            <div class="row" style="margin-top:10px"><button class="btn" id="btnPracticeStop">Завершити</button></div>
-          </div>`;
-        document.body.appendChild(ov);
-        return ov.querySelector('#practiceContent');
-      }
-      function addPracticeLabel(container){
-        const el = document.createElement('div');
-        el.style.fontSize='18px';
-        el.style.marginTop='6px';
-        container.appendChild(el);
-        return el;
-      }
-      function addPracticeStop(overlay, stopFn){
-        overlay.parentElement.querySelector('#btnPracticeStop').onclick = stopFn;
-      }
-      function closePracticeOverlay(){
-        const ov = document.getElementById('practiceOverlay');
-        if (ov) ov.remove();
-      }
 
       /********************
        *  applyLang AFTER renderers exist
