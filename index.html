@@ -257,6 +257,7 @@
             <button class="btn" id="btnFilters">⚙️ <span data-i18n="feed.filters">Фільтри</span></button>
           </div>
           <div class="map">🗺️ <span class="muted" data-i18n="map.placeholder">Тут буде карта (пізніше)</span></div>
+          <div id="oblastBadges" class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
         </div>
         <div style="height:10px"></div>
         <div class="list" id="feedList"></div>
@@ -976,6 +977,7 @@
        *  DOM refs used by renderers MUST be declared before i18n.applyLang() calls
        ********************/
       const feedList = document.getElementById('feedList');
+      const oblastBadges = document.getElementById('oblastBadges');
       const circleList = document.getElementById('circleList');
       const docChips = document.getElementById('docChips');
 
@@ -1079,58 +1081,60 @@
         const label = level==='danger'? t('level.high'): level==='warn'? t('level.warn'): t('level.info');
         return `<span class="badge ${cls}">${label}</span>`;
       }
-      // Небольшой словарик подписей областей (фолбэк к i18n)
-      const AREAS_UI = {
-        kyiv_obl: 'Київська обл.',
-        lviv_obl: 'Львівська обл.',
-        odesa_obl: 'Одеська обл.',
-        kharkiv_obl: 'Харківська обл.',
-        dnipropetrovsk_obl: 'Дніпропетровська обл.',
-        zaporizhzhia_obl: 'Запорізька обл.',
-        mykolaiv_obl: 'Миколаївська обл.',
-        kherson_obl: 'Херсонська обл.',
-        volyn_obl: 'Волинська обл.'
-      };
 
       // Загрузка ленты с бэка
-      async function loadAlertsFromApi(filters = {}) {
-        const p = new URLSearchParams();
-        if (filters.area)  p.set('area',  filters.area);
-        if (filters.type)  p.set('type',  filters.type);
-        if (filters.level) p.set('level', filters.level);
-        if (filters.since) p.set('since', filters.since);
-        p.set('limit', String(filters.limit ?? 50));
-
-        const url = API_BASE + '/alerts?' + p.toString();
+      // ТОЛЬКО активные повітряні тривоги, по 1 записи на область, с человеческим названием
+      async function loadAlertsFromApi() {
+        const url = `${API_BASE}/alerts?human=1&scope=oblast&distinct_oblast=1&kind=air`;
         const r = await fetch(url, { headers: { 'accept':'application/json' }, mode:'cors' });
         if (!r.ok) throw new Error('http ' + r.status);
         return await r.json();
       }
 
-      // Рендер ленты
+      async function loadOblastBadges() {
+        const url = `${API_BASE}/alerts/oblasts`; // уровни: A -> danger, P -> warn
+        const r = await fetch(url, { headers: { 'accept':'application/json' }, mode: 'cors' });
+        if (!r.ok) return [];
+        return await r.json(); // [{ type, area, area_title, level:'danger'|'warn', happened_at, ...}]
+      }
+
+      function renderOblastBadges(list) {
+        if (!oblastBadges) return;
+        const code = localStorage.getItem('sc_lang') || 'uk';
+        oblastBadges.innerHTML = (Array.isArray(list) ? list : []).map(it => {
+          const cls = it.level === 'danger' ? 'badge danger' : 'badge warn';
+          const name = it.area_title || t('area.' + it.area) || it.area;
+          return `<span class="${cls}" title="${name}">${name}</span>`;
+        }).join('') || `<span class="muted">${code==='ru'?'Нет активных областей':'Немає активних областей'}</span>`;
+      }
+
+      // Рендер ленты "по-людски": только air alert, human area_title, без тех. area.*
       function renderAlerts(list) {
         if (!feedList) return;
+
         const code = localStorage.getItem('sc_lang') || 'uk';
+        const title =
+          code === 'ru' ? 'Воздушная тревога' :
+          code === 'en' ? 'Air alert' :
+          'Повітряна тривога';
+
         const items = Array.isArray(list) ? list : [];
 
         feedList.innerHTML = items.map(a => {
+          // время события
           const when = new Date(a.happened_at || a.when || Date.now());
           const hh = when.toLocaleTimeString(
-            code==='en'?'en-GB': code==='ru'?'ru-RU':'uk-UA',
-            { hour:'2-digit', minute:'2-digit' }
+            code === 'en' ? 'en-GB' : (code === 'ru' ? 'ru-RU' : 'uk-UA'),
+            { hour: '2-digit', minute: '2-digit' }
           );
 
-          const areaName = t('area.' + a.area) || AREAS_UI[a.area] || a.area;
+          // читаемое имя области от бэка, либо i18n, либо raw
+          const areaName = a.area_title || t('area.' + a.area) || a.area;
+
+          // бейдж уровня
           const levelCls =
             a.level === 'danger' ? 'badge danger' :
             a.level === 'warn'   ? 'badge warn'   : 'badge';
-
-          const title =
-            a.type === 'air_alert' ? (code==='ru'?'Воздушная тревога': code==='en'?'Air alert':'Повітряна тривога') :
-            a.type === 'uav'       ? (code==='ru'?'Активність БПЛА?': code==='en'?'Possible UAV activity':'Може бути активність БпЛА') :
-            a.type === 'missile'   ? (code==='ru'?'Загроза ракетного удара': code==='en'?'Missile threat':'Загроза ракетного удару') :
-            a.type === 'shelling'  ? (code==='ru'?'Ризик обстрелов': code==='en'?'Shelling risk':'Ризик обстрілів') :
-                                    (code==='ru'?'Событие': code==='en'?'Event':'Подія');
 
           return `
             <div class="tile">
@@ -1140,7 +1144,7 @@
               </div>
               <div class="row">
                 <div class="muted">${areaName}</div>
-                <div class="muted">${a.source ? String(a.source).slice(0,32) : ''}</div>
+                <div class="muted">${code === 'ru' ? 'Обновлено' : 'Оновлено'} ${hh}</div>
               </div>
             </div>
           `;
@@ -1715,6 +1719,27 @@
         } catch (e) {
           addLog('feed load failed: ' + String(e));
         }
+
+      // первичная подгрузка бейджей областей
+      (async () => {
+        try {
+          const badges = await loadOblastBadges();
+          renderOblastBadges(badges);
+        } catch (e) {
+          addLog('oblast badges load failed: ' + String(e));
+        }
+      })();
+
+      // авто-рефреш бейджей раз в минуту
+      setInterval(async () => {
+        try {
+          const badges = await loadOblastBadges();
+          renderOblastBadges(badges);
+        } catch (e) {
+          addLog('oblast badges refresh failed: ' + String(e));
+        }
+      }, 60000);
+
       })();
 
       
